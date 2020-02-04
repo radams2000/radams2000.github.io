@@ -1,0 +1,13 @@
+// initialize, do once after you CD into local computer directory...    
+git clone https://github.com/radams2000/radams2000.github.io
+
+// .. do every time .... 
+git add --all
+git commit -m "4th commit"
+push -u origin master
+
+// origin is shorthand for the name of the git repository you cloned from 
+
+to rename a file from command line ...
+git mv old_filename new_filename 
+git commit -m "Rename File"
