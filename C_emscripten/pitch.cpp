@@ -159,9 +159,11 @@ for(i=0;i < num_samples_wav-FFTLEN;i++) {
 			compute_fftphs();
 			numpeaks_GL = compute_freqof_peaks();
 		}
-		//fftargmax[block_count] = fftmax();
-		//wav_in[num_samples_wav+block_count] = (float)fftmax(); // return pitch using unused portion of input array
-		wav_in[num_samples_wav+block_count] = truefreq_GL;
+		fftargmax[block_count] = fftmax();
+		wav_in[num_samples_wav+block_count] = (float)fftmax(); // return pitch using unused portion of input array
+		//wav_in[num_samples_wav+block_count] = truefreq_GL;
+		//wav_in[num_samples_wav+block_count] = (float)block_count; // debug
+		printf("truefreq = %lf\n",truefreq_GL);
 		//wav_in[num_samples_wav+block_count] = (float)numpeaks_GL;
 
 	 	count = 0;

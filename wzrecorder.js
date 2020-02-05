@@ -43,13 +43,14 @@ function WzRecorder(config) {
     };
 
     this.stop = function() {
+        // pass a function to stopRecording; the function is defined inside the call to stopRecording
         stopRecording(function(blob) {
 			self.blob = blob;
 			config.onRecordingStop && config.onRecordingStop(blob);
         });
     };
 	
-	this.upload = function (url, params, callback) {
+	this.upload = function (url, params, callback) { // not used
         var formData = new FormData();
         formData.append("audio", self.blob, config.filename || 'recording.wav');
         
@@ -86,6 +87,16 @@ function WzRecorder(config) {
 		window.localStream.getTracks().forEach( (track) => { track.stop(); });
         audioInput.disconnect();
         audioNode.disconnect();
+
+        console.log(recordedData.length);
+        // total recording length in samples is recordingLength, set in onAudioProcess 
+        // note recordedData.length gives the number of 4K sample blocks, whereas
+        // recordedData(n).length gives the length of the nth sample block (4K usually)
+        // recordedData is a collection of 4K-sample blocks
+        var buff = mergeBuffers(recordedData,recordingLength); // convert to a single large array
+        //console.log(buff.length);
+        //console.log(buff);
+        processBuffer(buff);
 		
         exportWav({
             sampleRate: sampleRate,
@@ -136,6 +147,95 @@ function WzRecorder(config) {
 
 		config.onRecording && config.onRecording(self.duration);
     }
+
+
+
+
+    function mergeBuffers(recBuffers, recLength) {
+        var result = new Float32Array(recLength);
+        var offset = 0;
+        for (var i = 0; i < recBuffers.length; i++) {
+            result.set(recBuffers[i], offset);
+            offset += recBuffers[i].length;
+        }
+        return result;
+    }
+
+
+    function processBuffer(audiobuff) {
+        /** 2D array buff[channel][index] **/
+        //console.log(buff);
+        //var audiobuff = buff[0]; // 1 channel only
+        //console.log(audiobuff.length);
+        var top_return = 1024; // the number of samples that will be wasted to make room for the return buffer at the top of the audio array
+
+        // pass float array, code copied from:
+        // https://bl.ocks.org/jonathanlurie/e4aaa37e2d9c317ce44eae5f6011495d
+        // Get data byte size, allocate memory on Emscripten heap, and get pointer
+
+        // Import function from Emscripten generated file
+        processAudioData = Module.cwrap('processAudioData', 'number', ['number', 'number','number'] );
+        // function return fftargmax, float * ptr to wav array, wav length, array-return-length
+
+
+        var nDataBytes = (audiobuff.length * audiobuff.BYTES_PER_ELEMENT); // 4 bytes per element for float
+        var dataPtr = Module._malloc(nDataBytes); // this is emcripten specific, _malloc alloactes inside the em heap
+
+        // Copy data to Emscripten heap (directly accessed from Module.HEAPU8)
+        var dataHeap = new Uint8Array(Module.HEAPU8.buffer, dataPtr, nDataBytes);
+        dataHeap.set(new Uint8Array(audiobuff.buffer)); 
+        // call function and get pitch
+        //console.log(buff.length);
+        //var func_in = new Uint8Array(dataHeap.buffer, dataHeap.byteOffset, audiobuff.length);
+        var numblocks = processAudioData(dataHeap.byteOffset, audiobuff.length,top_return); // call emscripten function
+        //var result = new Float32Array(dataHeap.buffer, dataHeap.byteOffset, audiobuff.length); // copy buffer and convert to float
+        var result = new Float32Array(dataHeap.buffer, dataHeap.byteOffset+4*(audiobuff.length-top_return), top_return); // copy top of buffer and convert to float
+        //var func_out = [...result.slice(result.length-top_return)]; // top of buffer is return values
+
+        console.log(" numblocks = "); //
+        console.log(numblocks);
+        console.log(" C-code results in top 1K of heap  = "); 
+        console.log(result);
+
+      // Free memory
+        Module._free(dataHeap.byteOffset);
+        var X = makeArr(1,numblocks,numblocks);
+
+    //*********** PLOT *************/
+        var trace1 = {
+        x: X,
+        y: result.slice(1,numblocks),
+      //type: 'scatter'
+        type: 'line'
+
+        };
+
+        // var trace2 = {
+        //   x: X,
+        //   y: [16, 5, 11, 9],
+        //   type: 'scatter'
+        // };
+        //var data = [trace1];
+
+        Plotly.newPlot('myDiv', [trace1]);
+
+        var xx = 10;
+
+
+    }
+
+
+
+    function makeArr(startValue, stopValue, numpoints) {
+      var arr = [];
+      var step = (stopValue - startValue) / (numpoints - 1);
+      for (var i = 0; i < numpoints; i++) {
+        arr.push(startValue + (step * i));
+      }
+      return arr;
+    }
+
+
 
 	
 	function visualize(stream) {

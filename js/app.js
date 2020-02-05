@@ -238,22 +238,22 @@ function processBuffer(buff) {
 	var X = makeArr(1,numblocks,numblocks);
 
 //*********** PLOT *************/
-var trace1 = {
-  x: X,
-  y: result.slice(1,numblocks),
+	var trace1 = {
+  	x: X,
+  	y: result.slice(1,numblocks),
   //type: 'scatter'
-  type: 'line'
+  	type: 'line'
 
-};
+	};
 
-// var trace2 = {
-//   x: X,
-//   y: [16, 5, 11, 9],
-//   type: 'scatter'
-// };
-//var data = [trace1];
+	// var trace2 = {
+	//   x: X,
+	//   y: [16, 5, 11, 9],
+	//   type: 'scatter'
+	// };
+	//var data = [trace1];
 
-Plotly.newPlot('myDiv', [trace1]);
+	Plotly.newPlot('myDiv', [trace1]);
 
 	var xx = 10;
 
