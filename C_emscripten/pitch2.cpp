@@ -8,30 +8,26 @@
 
 #define FFTLEN 2048
 #define FFTLEN2 1024
-#define HOP 128
+#define HOP 1024
+#define MAXBIN 216 // about 5KHz top bin for harmonic analysis
+#define MAXBLOCK 1024
 //#define CONLY 1
-void fft();
+
 void fft(int, int);
 void hannCompute(void);
 void hannMult(void);
 int fftmax(void) ;
-float compute_fftmag(void);
-void compute_fftphs(void);
-void compute_fftphs_zm1(void);
-int compute_freqof_peaks(void);
-//void Array_sort(float *, int);
-void Array_sort(float array[] , int n);
-
-
-
-
+float compute_fftmagdb(void);
+void Array_sort(float *, int);
+float find_freq(void);
 
 #ifdef CONLY
 void parseWavHeader();
 float get_wav16(void);
-int processAudioData(float *,int);
+int processAudioData(float *,int, int);
 FILE *wav_infile; 
 FILE *infile;
+FILE *outfile;
 
 char inbuf[300];
 char fname[60];
@@ -44,28 +40,24 @@ int num_channels,block_align;
 
 int num_points;
 int numcycles;
+int numpeaks_GL = 0;
 
 float fs_wav;
 float re[FFTLEN] = {0.0};
 float im[FFTLEN] = {0.0};
-float fftmag[FFTLEN] = {0.0};
-float fftphs[FFTLEN] = {0.0};
-float fftphs_zm1[FFTLEN] = {0.0};
-float peakfreqs_GL[FFTLEN2] = {0.0};
-float peakfreqs_delta_GL[FFTLEN2] = {0.0};
-float max_ampl_GL = 0.0;
-int numpeaks_GL = 0;
-float truefreq_GL=0;
-float FS = 48e3;
-float rms_sig = 0.0;
+float fftmagdb[FFTLEN] = {0.0};
 
-
+float maxampl_db_GL = 0.0;
+float freqs[MAXBLOCK] = {0.0};
 
 float win[FFTLEN] = {0.0};
-int fftargmax[10000] = {0};
 float PI = 3.141592653589793;
 int testme[] = {1,2,3,4,5,6,7,8,9};
 int testme2[] = {1,2,3,4,5,6,7,8,9};
+
+float peaks_interp[MAXBIN+1] = {0.0};
+float delta_peaks[MAXBIN] = {0.0};
+float scale_bins2freq_GL = 1.0;
 
 
 
@@ -74,12 +66,14 @@ int testme2[] = {1,2,3,4,5,6,7,8,9};
 int main() 
 {
 int i,k;
+int num_return_samples = 1024;
 float wavin[1000000] = {0.0};
 
 int numblocks,block,count,block_count,tempi;
 float left_in,right_in,wav_in;
 
-char buff[] = "./bob/rwa_runyon_a.wav";
+outfile = fopen("freqout.txt","w");
+char buff[] = "./wavs/rwa_runyon_a.wav";
 if( (wav_infile = fopen(buff,"rb")) == NULL) {
 	printf("cant find it\n");
 	exit(0);
@@ -104,7 +98,13 @@ for(i=0;i < num_samples;i++) {
 
   } /** end of while loop ***/
 
-tempi = processAudioData(wavin,num_samples);	
+numblocks = processAudioData(wavin,num_samples,num_return_samples);	
+
+for(k=1;k < numblocks;k++) {
+	fprintf(outfile,"%lf\n",freqs[k]);
+
+}
+fclose(outfile);
 }
 #endif
 
@@ -123,12 +123,20 @@ int i,k,numblocks,count,block_count;
 
 int num_samples_wav = num_samples-num_return_samples;
 
-//int num_samples_wav = num_samples;
 
+fs_wav = 44.1e3; // temporary, will need a way to pass this in from the JS side
+
+//int num_samples_wav = num_samples;
+if(num_return_samples > MAXBLOCK) {
+	printf("error, num return samples is < MAXBLOCK\n");
+	exit(0);
+
+}
 
 /*********************start main routine ***************/
 count = 0;
 block_count = 0;
+scale_bins2freq_GL = fs_wav/(float)FFTLEN;
 printf("num_samples = %d\n",num_samples);
 hannCompute();
 
@@ -136,9 +144,7 @@ for(i=num_samples_wav;i < num_samples;i++) { // zero out the return buffer
 	wav_in[i] = 0.0;
 }
 
-for(i=0;i < num_samples_wav-FFTLEN;i++) {rms_sig = rms_sig + wav_in[i]*wav_in[i];}
 
-rms_sig = sqrt(rms_sig/(float)num_samples);
 
 for(i=0;i < num_samples_wav-FFTLEN;i++) {
 
@@ -149,22 +155,17 @@ for(i=0;i < num_samples_wav-FFTLEN;i++) {
 	 	for(k=0; k < FFTLEN;k++) {re[k]=wav_in[i-FFTLEN+k];im[k] = 0.0;}
 		hannMult(); // in place hann window on global re
 		fft(FFTLEN,-1); // in-place fft on global buffer variables
-		max_ampl_GL = compute_fftmag();
-		numpeaks_GL = 0;
-		if(max_ampl_GL > 50.0) {
-			compute_fftphs_zm1();
-	    	for(k=0; k < FFTLEN;k++) {re[k]=wav_in[i-FFTLEN+k+1];im[k] = 0.0;}
-	    	hannMult();
-			fft(FFTLEN,-1); 
-			compute_fftphs();
-			numpeaks_GL = compute_freqof_peaks();
-		}
-		fftargmax[block_count] = fftmax();
-		wav_in[num_samples_wav+block_count] = (float)fftmax(); // return pitch using unused portion of input array
-		//wav_in[num_samples_wav+block_count] = truefreq_GL; // this isn't working yet
-		//wav_in[num_samples_wav+block_count] = (float)block_count; // debug
-		printf("truefreq = %lf\n",truefreq_GL);
-		//wav_in[num_samples_wav+block_count] = (float)numpeaks_GL;
+		maxampl_db_GL = compute_fftmagdb(); // fills array fftmagdb and reurns the max peak ampl in dB
+		
+		freqs[block_count] = find_freq();
+
+
+		// ************ This is the return to JS side!! ******************
+
+		wav_in[num_samples_wav+block_count] = freqs[block_count]; // return pitch using unused portion of input array
+	 	
+	 	// ***********************************************************
+
 
 	 	count = 0;
 	 	block_count = block_count + 1;
@@ -179,12 +180,7 @@ for(i=0;i < num_samples_wav-FFTLEN;i++) {
 
 //for(k=0:k < 16;k++) wav_in[k] = 1;
 printf("done FFT loop, max block count =   %d\n",block_count-1);
-//printf("wav_in[10000] =   %f\n",wav_in[10000]);
 
-//printf("pointer to testme2 =   %p\n",&testme);
-//for(k=num_samples_wav;k < num_samples;k++) wav_in[k] = 1.0;
-
-//return(fftargmax[block_count-10]); // right now just returns the pitch of the 20th block
 return block_count; 
 
 }
@@ -217,79 +213,61 @@ void hannMult(void) {
 
 
 /**************************************************/
-float compute_fftmag(void) { // operates on global FFT registers
+float compute_fftmagdb(void) { // operates on global FFT registers
 	int k;
 	float temp;
-	for(k = 0;k < FFTLEN2;k++) { // only look at 1st half of FFT buffer
+	for(k = 0;k < MAXBIN;k++) { // only look up to 5KHz
 		temp = re[k]*re[k] + im[k]*im[k];
-		fftmag[k] = sqrt(temp);
-		if(fftmag[k] > max_ampl_GL) {
-			max_ampl_GL = fftmag[k];
+		fftmagdb[k] = 10.0*log10(temp + 1e-12);
+		if(fftmagdb[k] > maxampl_db_GL) {
+			maxampl_db_GL = fftmagdb[k];
 		}
 		
 	}
-	return(max_ampl_GL);
+	return(maxampl_db_GL);
 }
 	
 
 
 /**************************************************/
-void compute_fftphs_zm1(void) { // operates on global FFT registers
-	int k;
-	for(k = 0;k < FFTLEN2;k++) { // only look at 1st half of FFT buffer
-		fftphs_zm1[k] = atan2(im[k],re[k]);
-	}
-	return;
-}
-
-void compute_fftphs(void) { // operates on global FFT registers
-	int k;
-	for(k = 0;k < FFTLEN2;k++) { // only look at 1st half of FFT buffer
-		fftphs[k] = atan2(im[k],re[k]);
-	}
-	return;
-}
-
-int compute_freqof_peaks(void) {
-	int j,k;
-	int numpeaks = 1; // manually set the 1st peak to bin 0
-	peakfreqs_GL[0] = 0.0; // always pretend 0 is a peak so you count the fundamental as the 1st difference
-	for(k = 1;k < FFTLEN2;k++) { 
-		if((fftmag[k] > fftmag[k-1]) && (fftmag[k] > fftmag[k+1]) && (fftmag[k] > 0.03*max_ampl_GL)) {
-			peakfreqs_GL[numpeaks] = (fftphs[k]-fftphs_zm1[k])*FS/(2.0*PI);
-			if(peakfreqs_GL[numpeaks] < 0.0) {peakfreqs_GL[numpeaks]+=FS;}
-			peakfreqs_delta_GL[numpeaks-1] = peakfreqs_GL[numpeaks] - peakfreqs_GL[numpeaks-1];
-			numpeaks++;
+float find_freq(void) {
+	int k,cond1,cond2,cond3,cond4,cond5,pass, halfbuff; 
+	float Beta,Alpha,Gamma,frac_bin;
+	numpeaks_GL=1;// manually stuff peaks_interp[0]
+	peaks_interp[0] = 0.0; // for pure sine wave, generates a delta that can be used
+	for(k=3;k < MAXBIN;k++) {
+		cond1 = (fftmagdb[k] > fftmagdb[k+1]);
+		cond2 = (fftmagdb[k] > fftmagdb[k-1]);
+		cond3 = (fftmagdb[k] > (fftmagdb[k+2]+4.0));
+		cond4 = (fftmagdb[k] > (fftmagdb[k-2]+4.0));
+		cond5 = (fftmagdb[k] > (maxampl_db_GL-32.0));
+		pass = (cond1 & cond2 & cond3 & cond4 & cond5);
+		if(pass==1) { // interpolate
+			Beta = fftmagdb[k];
+        	Alpha = fftmagdb[k-1];
+        	Gamma = fftmagdb[k+1];
+        	frac_bin = 0.5*(Alpha-Gamma)/(Alpha-2.0*Beta + Gamma);
+        	peaks_interp[numpeaks_GL] = (float)k + frac_bin;
+        	//printf("%f\n",peaks_interp[numpeaks_GL]);
+			numpeaks_GL++;
 		}
+		
 
 	}
-	if(numpeaks > 4) {
-
-		Array_sort(peakfreqs_delta_GL,numpeaks-1);
-		truefreq_GL = peakfreqs_delta_GL[(numpeaks-1)/2]; // median of the delta's
-
+	numpeaks_GL=numpeaks_GL-1;
+	// now generate delta-peaks
+	for(k=1;k <= numpeaks_GL;k++) {
+		delta_peaks[k-1] = peaks_interp[k]-peaks_interp[k-1];
 
 	}
-	return(numpeaks);
+	// now sort the delta-peaks array
+	Array_sort(delta_peaks,numpeaks_GL);
+	halfbuff = numpeaks_GL/2;
+
+
+	return(scale_bins2freq_GL*delta_peaks[halfbuff]); // absolute frequency of the median delta-freq
 }
 
-
-
-/**************************************************/
-int fftmax(void) { // operates on global FFT registers
-	int k;
-	float maxval = 0;
-	int argmax = 0;
-	float temp;
-	for(k = 0;k < FFTLEN2;k++) { // only look at 1st half of FFT buffer
-		temp = re[k]*re[k] + im[k]*im[k];
-		if(temp > maxval) {
-			maxval = temp;
-			argmax = k;
-		}
-	}
-	return(argmax);
-}
 
 
 /**************************************************/
@@ -368,7 +346,7 @@ void fft(int fn, int ff)
 
 
 // function to sort the array in ascending order
-void Array_sort(float array[] , int n)
+void Array_sort(float *array , int n)
 { 
     // declare some local variables
     int i=0 , j=0 ;

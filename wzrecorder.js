@@ -1,5 +1,5 @@
 function WzRecorder(config) {
-
+// https://www.gmass.co/blog/record-audio-mobile-web-page-ios-android/#comment-306880
     config = config || {};
 
     var self = this;
