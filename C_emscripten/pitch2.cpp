@@ -11,7 +11,7 @@
 #define HOP 1024
 #define MAXBIN 216 // about 5KHz top bin for harmonic analysis
 #define MAXBLOCK 1024
-#define CONLY 1
+//#define CONLY 1
 
 void fft(int);
 void ifft(int);
