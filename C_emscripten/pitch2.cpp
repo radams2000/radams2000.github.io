@@ -13,13 +13,15 @@
 #define MAXBLOCK 1024
 //#define CONLY 1
 
-void fft(int, int);
+void fft(int);
+void ifft(int);
 void hannCompute(void);
 void hannMult(void);
 int fftmax(void) ;
 float compute_fftmagdb(void);
 void Array_sort(float *, int);
 float find_freq(void);
+void init_fft_twiddles(void);
 
 #ifdef CONLY
 void parseWavHeader();
@@ -45,6 +47,9 @@ int numpeaks_GL = 0;
 float fs_wav;
 float re[FFTLEN] = {0.0};
 float im[FFTLEN] = {0.0};
+float twid_re[FFTLEN2] = {0.0};
+float twid_im[FFTLEN2] = {0.0};
+
 float fftmagdb[FFTLEN] = {0.0};
 
 float maxampl_db_GL = 0.0;
@@ -58,6 +63,7 @@ int testme2[] = {1,2,3,4,5,6,7,8,9};
 float peaks_interp[MAXBIN+1] = {0.0};
 float delta_peaks[MAXBIN] = {0.0};
 float scale_bins2freq_GL = 1.0;
+int init = 1;
 
 
 
@@ -123,6 +129,11 @@ int i,k,numblocks,count,block_count;
 
 int num_samples_wav = num_samples-num_return_samples;
 
+if(init==1) {
+	init_fft_twiddles();
+	init = 0;
+}
+
 
 fs_wav = 44.1e3; // temporary, will need a way to pass this in from the JS side
 
@@ -154,7 +165,7 @@ for(i=0;i < num_samples_wav-FFTLEN;i++) {
 	 	// load fft buffer fromm input buffer
 	 	for(k=0; k < FFTLEN;k++) {re[k]=wav_in[i-FFTLEN+k];im[k] = 0.0;}
 		hannMult(); // in place hann window on global re
-		fft(FFTLEN,-1); // in-place fft on global buffer variables
+		fft(FFTLEN); // in-place fft on global buffer variables
 		maxampl_db_GL = compute_fftmagdb(); // fills array fftmagdb and reurns the max peak ampl in dB
 		
 		freqs[block_count] = find_freq();
@@ -269,9 +280,97 @@ float find_freq(void) {
 }
 
 
+void init_fft_twiddles(void)
+{
+int k;
+	
+for(k=0;k < FFTLEN2;k++) {
+	twid_re[k] = cos(2.0*PI * (float)(k) / (float)FFTLEN);
+	twid_im[k] = sin(2.0*PI * (float)(k) / (float)FFTLEN);
+
+}
+
+
+}
+/**************************************************/
+void fft(int fn)
+//int fn, ff;
+/*** re and im arrays are global, so they can be huge!! **/
+
+/* fft(re, im fn, ff) performs Fast Fourier Transform.        */
+/*  re[] and im[] contain the real and imaginary part of data  */
+/*   ( After transform they contain the transformed data)        */
+/*  fn is the number of point. ( must be power of 2 )            */
+/*  ff = -1 for forward transform.       			 */
+/*     =  1 for inverse transform.       			 */
+
+{
+	float tempr, tempi, fwr, fwi, ftheta;
+	//float testfwr,testfwi;
+	int fj, fi, fm, mmax, tmax, istep;
+
+
+	/*  do Bit-Reversal */
+	fj = 1;
+	for ( fi =1; fi <=fn; fi++)
+	{
+		if(fi < fj)
+		{
+			tempr = re[fj-1];
+			tempi = im[fj-1];
+			re[fj-1] = re[fi-1];
+			im[fj-1] = im[fi-1];
+			re[fi-1] = tempr;
+			im[fi-1] = tempi;
+		}
+		fm = fn / 2.0 ;
+		while ( fj > fm )
+		{
+			fj = fj - fm;
+			fm = (fm + 1 ) / 2;
+		}
+		fj = fj + fm;
+	}
+
+	/* Radix two frequency decimation algorithm  */
+	mmax = 1;
+	tmax = FFTLEN2;
+		while ( mmax < fn )
+	{
+		istep = 2 * mmax;
+		for ( fm = 1; fm <= mmax; fm++ )
+		{
+
+			fwr = twid_re[(fm-1)*tmax];
+			fwi = -twid_im[(fm-1)*tmax];
+			//ftheta = PI * (float)(-(fm - 1)) / (float)mmax;
+			//fwr = cos(ftheta);
+			//fwi = sin(ftheta);
+			//printf("%d %f %f\n",(fm-1)*tmax,fwi,testfwi);
+			for(fi = fm; fi <= fn; fi = fi + istep )
+			{
+				fj = fi + mmax;
+				tempr = fwr * re[fj-1] - fwi * im[fj-1];
+				tempi = fwr * im[fj-1] + fwi * re[fj-1];
+				re[fj-1] = re[fi-1] - tempr;
+				im[fj-1] = im[fi-1] - tempi;
+				re[fi-1] = re[fi-1] + tempr;
+				im[fi-1] = im[fi-1] + tempi;
+			}
+		}
+		mmax = istep;
+		tmax = tmax/2;
+	}
+	
+}
+
+
+
+
+
 
 /**************************************************/
-void fft(int fn, int ff)
+void ifft(int fn)
 //int fn, ff;
 /*** re and im arrays are global, so they can be huge!! **/
 
@@ -316,7 +415,7 @@ void fft(int fn, int ff)
 		istep = 2 * mmax;
 		for ( fm = 1; fm <= mmax; fm++ )
 		{
-			ftheta = PI * (float)(ff * (fm - 1)) / (float)mmax;
+			ftheta = PI * (float)((fm - 1)) / (float)mmax;
 			fwr = cos(ftheta);
 			fwi = sin(ftheta);
 			for(fi = fm; fi <= fn; fi = fi + istep )
@@ -332,15 +431,19 @@ void fft(int fn, int ff)
 		}
 		mmax = istep;
 	}
-	if ( ff > 0 )
+	// scaling for inverse transform only, could skip??
+	for ( fi = 0; fi < fn; fi++)
 	{
-		for ( fi = 0; fi < fn; fi++)
-		{
-			re[fi] = re[fi] / (float)fn;
-			im[fi] = im[fi] / (float)fn;
-		}
+		re[fi] = re[fi] / (float)fn;
+		im[fi] = im[fi] / (float)fn;
 	}
+	
 }
+
+
+
+
+
 
 
 
