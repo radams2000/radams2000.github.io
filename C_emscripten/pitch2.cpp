@@ -242,8 +242,8 @@ float compute_fftmagdb(void) { // operates on global FFT registers
 
 /**************************************************/
 float find_freq(void) {
-	int k,cond1,cond2,cond3,cond4,cond5,pass, halfbuff; 
-	float Beta,Alpha,Gamma,frac_bin;
+	int k,kk,cond1,cond2,cond3,cond4,cond5,pass, halfbuff,num_keepers;; 
+	float Beta,Alpha,Gamma,frac_bin,delta_peaks_median,av_keepers;
 	numpeaks_GL=1;// manually stuff peaks_interp[0]
 	peaks_interp[0] = 0.0; // for pure sine wave, generates a delta that can be used
 	for(k=3;k < MAXBIN;k++) {
@@ -274,9 +274,23 @@ float find_freq(void) {
 	// now sort the delta-peaks array
 	Array_sort(delta_peaks,numpeaks_GL);
 	halfbuff = numpeaks_GL/2;
+	delta_peaks_median = delta_peaks[halfbuff];
+
+	// now reject outliers
+	num_keepers = 0;
+	av_keepers = 0.0;
+	for(kk=0;kk < numpeaks_GL;kk++) {
+		if((delta_peaks[kk] > 0.95*delta_peaks_median) & (delta_peaks[kk] < 1.05*delta_peaks_median ) ) {
+			num_keepers++;
+			av_keepers+= delta_peaks[kk];
+		}
+
+	}
+	av_keepers = av_keepers/(float)num_keepers;
 
 
-	return(scale_bins2freq_GL*delta_peaks[halfbuff]); // absolute frequency of the median delta-freq
+
+	return(scale_bins2freq_GL*av_keepers); // absolute frequency of the median delta-freq
 }
 
 
