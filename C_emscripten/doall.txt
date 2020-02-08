@@ -1,0 +1,7 @@
+~/emsdk/upstream/emscripten/emcc ./pitch2.cpp -o pitch2.html -s EXPORTED_FUNCTIONS='["_processAudioData"]' -s EXTRA_EXPORTED_RUNTIME_METHODS='["ccall", "cwrap"]'
+cd ..
+git add --all
+git commit -m "4th commit"
+git push -u origin master
+cd C_emscripten
+

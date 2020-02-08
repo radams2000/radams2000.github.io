@@ -265,7 +265,7 @@ float find_freq(void) {
 		
 
 	}
-	numpeaks_GL=numpeaks_GL-1;
+	//numpeaks_GL=numpeaks_GL-1;
 	// now generate delta-peaks
 	for(k=1;k <= numpeaks_GL;k++) {
 		delta_peaks[k-1] = peaks_interp[k]-peaks_interp[k-1];
@@ -279,7 +279,7 @@ float find_freq(void) {
 	// now reject outliers
 	num_keepers = 0;
 	av_keepers = 0.0;
-	for(kk=0;kk < numpeaks_GL;kk++) {
+	for(kk=0;kk < numpeaks_GL-1;kk++) { // note there is 1 less delta_peak than there are numpeaks
 		if((delta_peaks[kk] > 0.95*delta_peaks_median) & (delta_peaks[kk] < 1.05*delta_peaks_median ) ) {
 			num_keepers++;
 			av_keepers+= delta_peaks[kk];
