@@ -11,7 +11,7 @@
 #define HOP 1024
 #define MAXBIN 216 // about 5KHz top bin for harmonic analysis
 #define MAXBLOCK 1024
-//#define CONLY 1
+#define CONLY 1
 
 void fft(int);
 void ifft(int);
@@ -290,7 +290,7 @@ float find_freq(void) {
 
 
 
-	return(scale_bins2freq_GL*av_keepers); // absolute frequency of the median delta-freq
+	return(scale_bins2freq_GL*delta_peaks_median); // absolute frequency of the median delta-freq
 }
 
 
