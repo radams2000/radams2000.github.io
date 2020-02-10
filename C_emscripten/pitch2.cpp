@@ -51,9 +51,14 @@ float twid_re[FFTLEN2] = {0.0};
 float twid_im[FFTLEN2] = {0.0};
 
 float fftmagdb[FFTLEN] = {0.0};
+float fftpower_GL[FFTLEN] = {0.0};
+
 
 float maxampl_db_GL = 0.0;
-float freqs[MAXBLOCK] = {0.0};
+float freqs_raw_GL[MAXBLOCK] = {0.0};
+float freqs_GL[MAXBLOCK] = {0.0};
+
+
 
 float win[FFTLEN] = {0.0};
 float PI = 3.141592653589793;
@@ -63,7 +68,12 @@ int testme2[] = {1,2,3,4,5,6,7,8,9};
 float peaks_interp[MAXBIN+1] = {0.0};
 float delta_peaks[MAXBIN] = {0.0};
 float scale_bins2freq_GL = 1.0;
+float reliability_GL[MAXBLOCK] = {0};
+int numblocks_GL;
 int init = 1;
+float ms_ampl_GL = 0.0;
+int block_count_GL;
+float sortme[5] = {0.0};
 
 
 
@@ -75,7 +85,7 @@ int i,k;
 int num_return_samples = 1024;
 float wavin[1000000] = {0.0};
 
-int numblocks,block,count,block_count,tempi;
+int numblocks,block,count,tempi;
 float left_in,right_in,wav_in;
 
 outfile = fopen("freqout.txt","w");
@@ -89,7 +99,7 @@ printf("parsed wav file, num_samples = %d\n",num_samples);
 
 /*********************start main routine ***************/
 count = 0;
-block_count = 0;
+block_count_GL = 0;
 hannCompute();
 for(i=0;i < num_samples;i++) {
 
@@ -107,7 +117,7 @@ for(i=0;i < num_samples;i++) {
 numblocks = processAudioData(wavin,num_samples,num_return_samples);	
 
 for(k=1;k < numblocks;k++) {
-	fprintf(outfile,"%lf\n",freqs[k]);
+	fprintf(outfile,"%lf\n",freqs_GL[k]);
 
 }
 fclose(outfile);
@@ -125,7 +135,8 @@ extern "C" {
 int processAudioData(float * wav_in, int num_samples,int num_return_samples) // returns a pointer to an array
 {
 
-int i,k,numblocks,count,block_count;
+int i,k,count;
+float rtio = 0.0;
 
 int num_samples_wav = num_samples-num_return_samples;
 
@@ -146,7 +157,7 @@ if(num_return_samples > MAXBLOCK) {
 
 /*********************start main routine ***************/
 count = 0;
-block_count = 0;
+block_count_GL = 0;
 scale_bins2freq_GL = fs_wav/(float)FFTLEN;
 printf("num_samples = %d\n",num_samples);
 hannCompute();
@@ -155,9 +166,11 @@ for(i=num_samples_wav;i < num_samples;i++) { // zero out the return buffer
 	wav_in[i] = 0.0;
 }
 
-
+numblocks_GL = num_samples_wav/FFTLEN; // no overlap 
 
 for(i=0;i < num_samples_wav-FFTLEN;i++) {
+
+	ms_ampl_GL = 0.998*ms_ampl_GL + 0.002*wav_in[i]*wav_in[i];
 
 	
 
@@ -168,18 +181,31 @@ for(i=0;i < num_samples_wav-FFTLEN;i++) {
 		fft(FFTLEN); // in-place fft on global buffer variables
 		maxampl_db_GL = compute_fftmagdb(); // fills array fftmagdb and reurns the max peak ampl in dB
 		
-		freqs[block_count] = find_freq();
+		freqs_raw_GL[block_count_GL] = find_freq();
+
+
+		// if(block_count_GL > 5) {
+		// 	for(k=0;k < 5;k++) {
+		// 		sortme[k] = freqs_raw_GL[block_count_GL-k];
+		// 	}
+		
+		// // remove spikes, big jumps will have to wait
+		
+		// Array_sort(sortme,5);
+		// }
+		// freqs_GL[block_count_GL] = sortme[2]; // median of last 5 freq estimates
+		freqs_GL[block_count_GL] = freqs_raw_GL[block_count_GL];
 
 
 		// ************ This is the return to JS side!! ******************
 
-		wav_in[num_samples_wav+block_count] = freqs[block_count]; // return pitch using unused portion of input array
+		wav_in[num_samples_wav+block_count_GL] = freqs_GL[block_count_GL]; // return pitch using unused portion of input array
 	 	
 	 	// ***********************************************************
 
 
 	 	count = 0;
-	 	block_count = block_count + 1;
+	 	block_count_GL = block_count_GL + 1;
 
 	} else {
 		count = count + 1;
@@ -190,9 +216,9 @@ for(i=0;i < num_samples_wav-FFTLEN;i++) {
 
 
 //for(k=0:k < 16;k++) wav_in[k] = 1;
-printf("done FFT loop, max block count =   %d\n",block_count-1);
+printf("done FFT loop, max block count =   %d\n",block_count_GL-1);
 
-return block_count; 
+return block_count_GL; 
 
 }
 
@@ -229,6 +255,7 @@ float compute_fftmagdb(void) { // operates on global FFT registers
 	float temp;
 	for(k = 0;k < MAXBIN;k++) { // only look up to 5KHz
 		temp = re[k]*re[k] + im[k]*im[k];
+		fftpower_GL[k] = temp;
 		fftmagdb[k] = 10.0*log10(temp + 1e-12);
 		if(fftmagdb[k] > maxampl_db_GL) {
 			maxampl_db_GL = fftmagdb[k];
@@ -242,16 +269,17 @@ float compute_fftmagdb(void) { // operates on global FFT registers
 
 /**************************************************/
 float find_freq(void) {
-	int k,kk,cond1,cond2,cond3,cond4,cond5,pass, halfbuff,num_keepers;; 
-	float Beta,Alpha,Gamma,frac_bin,delta_peaks_median,av_keepers;
-	numpeaks_GL=1;// manually stuff peaks_interp[0]
-	peaks_interp[0] = 0.0; // for pure sine wave, generates a delta that can be used
+	int k,kk,cond1,cond2,cond3,cond4,cond5,pass, halfbuff,num_keepers;
+	float Beta,Alpha,Gamma,frac_bin,delta_peaks_median,av_keepers,pwr,gate,tempf;
+	float hold_freq = 0.0;
+	static float freq=0.0,oldfreq=0.0;
+	numpeaks_GL=0;
 	for(k=3;k < MAXBIN;k++) {
 		cond1 = (fftmagdb[k] > fftmagdb[k+1]);
 		cond2 = (fftmagdb[k] > fftmagdb[k-1]);
-		cond3 = (fftmagdb[k] > (fftmagdb[k+2]+4.0));
-		cond4 = (fftmagdb[k] > (fftmagdb[k-2]+4.0));
-		cond5 = (fftmagdb[k] > (maxampl_db_GL-32.0));
+		cond3 = (fftmagdb[k] > (fftmagdb[k+2]+2.0));
+		cond4 = (fftmagdb[k] > (fftmagdb[k-2]+2.0));
+		cond5 = (fftmagdb[k] > (maxampl_db_GL-40.0));
 		pass = (cond1 & cond2 & cond3 & cond4 & cond5);
 		if(pass==1) { // interpolate
 			Beta = fftmagdb[k];
@@ -265,32 +293,86 @@ float find_freq(void) {
 		
 
 	}
-	//numpeaks_GL=numpeaks_GL-1;
-	// now generate delta-peaks
-	for(k=1;k <= numpeaks_GL;k++) {
-		delta_peaks[k-1] = peaks_interp[k]-peaks_interp[k-1];
+	
+	// note, since we treat the 1st component as a delta with 0, we have the same number of deltas as peaks
+	if(numpeaks_GL > 0) {
+		hold_freq = freq;
+		delta_peaks[0] = peaks_interp[0]; // use absolute instead of delta for 1st peak
+		for(k=1;k < numpeaks_GL;k++) {
+			delta_peaks[k] = peaks_interp[k]-peaks_interp[k-1];
 
-	}
-	// now sort the delta-peaks array
-	Array_sort(delta_peaks,numpeaks_GL);
-	halfbuff = numpeaks_GL/2;
-	delta_peaks_median = delta_peaks[halfbuff];
+		}
+	
+		// now sort the delta-peaks array
+		Array_sort(delta_peaks,numpeaks_GL);
+		tempf = ((float)numpeaks_GL) - 1e-12;
+		tempf = tempf/2.0;
+		halfbuff = (int)tempf;
+		delta_peaks_median = delta_peaks[halfbuff];
 
-	// now reject outliers
-	num_keepers = 0;
-	av_keepers = 0.0;
-	for(kk=0;kk < numpeaks_GL-1;kk++) { // note there is 1 less delta_peak than there are numpeaks
-		if((delta_peaks[kk] > 0.95*delta_peaks_median) & (delta_peaks[kk] < 1.05*delta_peaks_median ) ) {
-			num_keepers++;
-			av_keepers+= delta_peaks[kk];
+		// now reject outliers
+		num_keepers = 0;
+		av_keepers = 0.0;
+		for(kk=0;kk <= numpeaks_GL-1;kk++) { 
+			if((delta_peaks[kk] > 0.97*delta_peaks_median) && (delta_peaks[kk] < 1.03*delta_peaks_median ) ) {
+				num_keepers++;
+				av_keepers = av_keepers +  delta_peaks[kk];
+			}
+
+		}
+		av_keepers = av_keepers/(float)num_keepers;
+		freq = scale_bins2freq_GL*av_keepers;
+		//freq = scale_bins2freq_GL*delta_peaks_median;
+
+		// over-ride freq with old freq if reliability too low
+		reliability_GL[block_count_GL] = (float)num_keepers/(float)numpeaks_GL;
+		if(block_count_GL > 3) {
+			if( (reliability_GL[block_count_GL-2] < 0.4) || (reliability_GL[block_count_GL-1] < 0.4) || (reliability_GL[block_count_GL] < 0.4)) {
+				freq = hold_freq;
+			}
 		}
 
+		} else { // no peaks
+			freq = hold_freq;
+		}
+
+		//if(block_count_GL==70) { 
+		//	printf("numpeaks,halfbuff, delta_median,delta_av = %d %d %f %f\n",numpeaks_GL,halfbuff,delta_peaks_median,av_keepers);
+
+		//}
+	//pwr = fftpower_GL[(int)av_keepers] + fftpower_GL[(int)(2.0*av_keepers)] + fftpower_GL[(int)(3.0*av_keepers)];
+
+
+
+	
+
+	// if(num_keepers == 0) {
+	// 	freq = oldfreq;
+	// } else {
+		
+	// 	freq = scale_bins2freq_GL*av_keepers;
+	// 	oldfreq = freq;
+	// }
+
+	
+
+
+	if(sqrt(ms_ampl_GL) < 0.002) {
+		gate = 0.0;
+	} else {
+		gate = 1.0;
 	}
-	av_keepers = av_keepers/(float)num_keepers;
 
 
 
-	return(scale_bins2freq_GL*delta_peaks_median); // absolute frequency of the median delta-freq
+	return(freq); // absolute frequency of the median delta-freq
+	//return((float)av_keepers);
+	//return((float)numpeaks_GL);
+	//return((float)num_keepers);
+
+	//return((float)reliability_GL[k]);
+	//return(pwr);
+	//return(sqrt(ms_ampl_GL));
 }
 
 
