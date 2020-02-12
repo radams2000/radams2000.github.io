@@ -12,7 +12,7 @@
 #define MAXBIN 216 // about 5KHz top bin for harmonic analysis
 #define MAXBLOCK 1024
 #define MINBIN 40
-#define FHILIMIT 2000.0
+#define FHILIMIT 1500.0
 #define FLOLIMIT 25.0
 //#define CONLY 1
 
@@ -263,7 +263,7 @@ for(i=0;i < num_samples;i++) {
         ampl1 = fftpow[check_bin1];
         ampl2 = fftpow[check_bin2];
  
-   		printf("fft indexes = %d %d %d, ampl = %f %f %f\n",fftbin,check_bin1,check_bin2,ampl0,ampl1,ampl2);
+   		//printf("fft indexes = %d %d %d, ampl = %f %f %f\n",fftbin,check_bin1,check_bin2,ampl0,ampl1,ampl2);
         // printf("possible octave error at block %d\n",block_count_GL);
         // 	printf("comparing bin %d with bin %d\n",argmax_acorl,check_bin1);
         // 	printf("max_acorl,acorl_bin1,ratio = %f %f %f\n",max_acorl,acorl_bin1,max_acorl/acorl_bin1);
@@ -294,9 +294,9 @@ for(i=0;i < num_samples;i++) {
 		// if(acorl_ratio < 1.1) gate = 0.0;
 
 		//if(block_count_GL == 10) 
-		if((block_count_GL % 10)==0) {
-			printf("%d %f %d %f %d\n",block_count_GL,max_acorl,argmax_acorl,max_acorl2,argmax_acorl2);
-		}
+		// if((block_count_GL % 10)==0) {
+		// 	printf("%d %f %d %f %d\n",block_count_GL,max_acorl,argmax_acorl,max_acorl2,argmax_acorl2);
+		// }
 
 
 
