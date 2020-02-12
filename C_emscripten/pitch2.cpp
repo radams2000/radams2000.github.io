@@ -8,20 +8,26 @@
 
 #define FFTLEN 2048
 #define FFTLEN2 1024
-#define HOP 1024
+#define HOP 1024 // not used
 #define MAXBIN 216 // about 5KHz top bin for harmonic analysis
 #define MAXBLOCK 1024
+#define MINBIN 40
+#define FHILIMIT 2000.0
+#define FLOLIMIT 25.0
 //#define CONLY 1
 
-void fft(int);
-void ifft(int);
+void fft(int,int);
+
 void hannCompute(void);
 void hannMult(void);
 int fftmax(void) ;
 float compute_fftmagdb(void);
 void Array_sort(float *, int);
-float find_freq(void);
 void init_fft_twiddles(void);
+void init_note_limits(void);
+void init_acorl_tilt(void);
+
+
 
 #ifdef CONLY
 void parseWavHeader();
@@ -47,33 +53,43 @@ int numpeaks_GL = 0;
 float fs_wav;
 float re[FFTLEN] = {0.0};
 float im[FFTLEN] = {0.0};
+// float re2[FFTLEN] = {0.0};
+// float im2[FFTLEN] = {0.0};
+float fftpow[FFTLEN] = {0.0};
+
 float twid_re[FFTLEN2] = {0.0};
 float twid_im[FFTLEN2] = {0.0};
+float acorl_tilt[FFTLEN2] = {0.0};
 
 float fftmagdb[FFTLEN] = {0.0};
 float fftpower_GL[FFTLEN] = {0.0};
 
 
 float maxampl_db_GL = 0.0;
-float freqs_raw_GL[MAXBLOCK] = {0.0};
 float freqs_GL[MAXBLOCK] = {0.0};
 
 
 
 float win[FFTLEN] = {0.0};
-float PI = 3.141592653589793;
-int testme[] = {1,2,3,4,5,6,7,8,9};
-int testme2[] = {1,2,3,4,5,6,7,8,9};
+float hann[FFTLEN] = {0.0};
 
-float peaks_interp[MAXBIN+1] = {0.0};
-float delta_peaks[MAXBIN] = {0.0};
+float PI = 3.141592653589793;
+
+
 float scale_bins2freq_GL = 1.0;
-float reliability_GL[MAXBLOCK] = {0};
+//float reliability_GL[MAXBLOCK] = {0};
 int numblocks_GL;
 int init = 1;
 float ms_ampl_GL = 0.0;
 int block_count_GL;
-float sortme[5] = {0.0};
+int num_notes_GL = 50;
+float note_low_limit[50] = {0.0};
+float note_nom_limit[50] = {0.0};
+float note_high_limit[50] = {0.0};
+int note_index_GL = 0;
+float note_error_GL = 0.0;
+
+
 
 
 
@@ -135,18 +151,26 @@ extern "C" {
 int processAudioData(float * wav_in, int num_samples,int num_return_samples) // returns a pointer to an array
 {
 
-int i,k,count;
-float rtio = 0.0;
+int i,k,kk,count,outbuff_ptr=0;
+float rtio = 0.0,ms_sum = 0.0,gain;
+float max_acorl = 0.0,max_acorl2=0.0;
+int argmax_acorl = 0,argmax_acorl2 =0;
+float Beta,Alpha,Gamma,frac_bin,argmax_acorl_interp,raw_freq,binfund;
+int num_samples_wav = num_samples-num_return_samples,maxharm,ptr,starti;
+float fs = 44.1e3; // temporary, will need a way to pass this in from the JS side
+float fft_energy_1x,fft_energy_2x,fft_energy_halfx,gate,acorl_ratio,mean,freqout,tempr,pass;
+int check_bin1,check_bin2,fftbin;
+float ampl0,ampl1,ampl2;
 
-int num_samples_wav = num_samples-num_return_samples;
 
 if(init==1) {
 	init_fft_twiddles();
+	init_note_limits();
+	init_acorl_tilt();
 	init = 0;
 }
 
 
-fs_wav = 44.1e3; // temporary, will need a way to pass this in from the JS side
 
 //int num_samples_wav = num_samples;
 if(num_return_samples > MAXBLOCK) {
@@ -157,55 +181,171 @@ if(num_return_samples > MAXBLOCK) {
 
 /*********************start main routine ***************/
 count = 0;
-block_count_GL = 0;
+outbuff_ptr = 0;
+//block_count_GL = 0;
 scale_bins2freq_GL = fs_wav/(float)FFTLEN;
-printf("num_samples = %d\n",num_samples);
+//printf("num_samples, num_return_samples = %d %d\n",num_samples,num_return_samples);
 hannCompute();
 
-for(i=num_samples_wav;i < num_samples;i++) { // zero out the return buffer
-	wav_in[i] = 0.0;
-}
+// for(i=num_samples_wav;i < num_samples;i++) { // zero out the return buffer
+// 	wav_in[i] = 0.0;
+// }
 
-numblocks_GL = num_samples_wav/FFTLEN; // no overlap 
+numblocks_GL = num_samples/FFTLEN; // no overlap 
 
-for(i=0;i < num_samples_wav-FFTLEN;i++) {
+for(i=0;i < num_samples;i++) {
 
 	ms_ampl_GL = 0.998*ms_ampl_GL + 0.002*wav_in[i]*wav_in[i];
 
-	
-
 	 if(count == (FFTLEN-1)) { // non-overlapping FFT's
-	 	// load fft buffer fromm input buffer
-	 	for(k=0; k < FFTLEN;k++) {re[k]=wav_in[i-FFTLEN+k];im[k] = 0.0;}
-		hannMult(); // in place hann window on global re
-		fft(FFTLEN); // in-place fft on global buffer variables
-		maxampl_db_GL = compute_fftmagdb(); // fills array fftmagdb and reurns the max peak ampl in dB
-		
-		freqs_raw_GL[block_count_GL] = find_freq();
-
-
-		// if(block_count_GL > 5) {
-		// 	for(k=0;k < 5;k++) {
-		// 		sortme[k] = freqs_raw_GL[block_count_GL-k];
-		// 	}
-		
-		// // remove spikes, big jumps will have to wait
-		
-		// Array_sort(sortme,5);
+	 // 	for(k=0;k < 3;k++) {
+		// 	printf("%2.10f  ",wav_in[k]);
 		// }
-		// freqs_GL[block_count_GL] = sortme[2]; // median of last 5 freq estimates
-		freqs_GL[block_count_GL] = freqs_raw_GL[block_count_GL];
+	 	// load fft buffer fromm input buffer
 
+
+
+	 	gate = 1.0;
+
+	 	for(k=0; k < FFTLEN;k++) {re[k]=wav_in[i-FFTLEN+k+1];im[k] = 0.0;}
+	 	// normalize rms level
+	 	for(k=0; k < FFTLEN;k++) {ms_sum = ms_sum + re[k]*re[k];}
+	 	gain = 1.0/sqrt(ms_sum/(float)FFTLEN);
+	 	for(k=0; k < FFTLEN;k++) {re[k]=gain*re[k];}
+
+
+		hannMult(); // in place hann window on global re
+		fft(FFTLEN,1); // in-place fft on global buffer variables
+
+
+		for(k=0; k < FFTLEN;k++) {
+			fftpow[k] = re[k]*re[k] + im[k]*im[k];
+			re[k] = fftpow[k];
+			im[k] = 0.0;
+		}
+
+		fft(FFTLEN,-1);
+
+		// zero out the early values until the autocorl goes negative
+		pass = 0.0;
+		for(k=0;k < 300;k++) {
+			if(re[k] < 0.0) {
+				pass=1.0;
+			}
+			re[k] = pass*re[k];
+		}
+	
+		// now find the peak acorl
+
+
+		max_acorl = 0.0;
+		argmax_acorl = 1;
+		for(k=0;k < FFTLEN2-1;k++) { 
+			if(re[k]*acorl_tilt[k] > max_acorl) {
+				max_acorl = re[k]*acorl_tilt[k];
+				argmax_acorl = k;
+			}
+		}
+
+		if(argmax_acorl > 0) {
+			Beta = re[argmax_acorl];
+        	Alpha = re[argmax_acorl-1];
+        	Gamma = re[argmax_acorl+1];
+        	frac_bin = 0.5*(Alpha-Gamma)/(Alpha-2.0*Beta + Gamma);
+        	argmax_acorl_interp = (float)argmax_acorl + frac_bin;
+        }
+
+        //check in the freq domain to see if lower-freq peaks appear
+        fftbin = (int)(((float)FFTLEN)/argmax_acorl_interp + 0.5);
+        check_bin1 = (int)(0.5*((float)FFTLEN)/argmax_acorl_interp + 0.5);
+        check_bin2 = (int)(0.25*((float)FFTLEN)/argmax_acorl_interp + 0.5);
+        ampl0 = fftpow[fftbin];
+        ampl1 = fftpow[check_bin1];
+        ampl2 = fftpow[check_bin2];
+ 
+   		printf("fft indexes = %d %d %d, ampl = %f %f %f\n",fftbin,check_bin1,check_bin2,ampl0,ampl1,ampl2);
+        // printf("possible octave error at block %d\n",block_count_GL);
+        // 	printf("comparing bin %d with bin %d\n",argmax_acorl,check_bin1);
+        // 	printf("max_acorl,acorl_bin1,ratio = %f %f %f\n",max_acorl,acorl_bin1,max_acorl/acorl_bin1);
+       
+        //if(max_acorl/acorl_bin2 < 1.1) printf("possible triplet error at block %d\n",block_count_GL);
+
+
+
+
+		//raw_freq = fs/argmax_acorl_interp;
+        // octave error check, find the next-lowest-energy acorl peak
+  //       if((argmax_acorl > 4) && (argmax_acorl < FFTLEN2-5)) {
+  //       	// zero out the main peaks
+  //       	//re[argmax_acorl] = 0;re[argmax_acorl-1] = 0;re[argmax_acorl-2] = 0;re[argmax_acorl-3] = 0;re[argmax_acorl-4] = 0;
+  //       	//re[argmax_acorl+1] = 0;re[argmax_acorl+2] = 0;re[argmax_acorl+3] = 0;re[argmax_acorl+4] = 0;
+		// 	starti = (int)(1.5*argmax_acorl_interp);
+		// 	max_acorl2 = 0.0;
+		// 	argmax_acorl2 = 1;
+		// 	for(k=starti;k < FFTLEN2;k++) {
+		// 		if(re[k]*acorl_tilt[k] > max_acorl2) {
+		// 			max_acorl2 = re[k]*acorl_tilt[k];
+		// 			argmax_acorl2 = k;
+		// 		}
+		// 	}
+		// }
+		// // if ratio is too close to 1, stop updating display
+		// acorl_ratio = max_acorl/max_acorl2;
+		// if(acorl_ratio < 1.1) gate = 0.0;
+
+		//if(block_count_GL == 10) 
+		if((block_count_GL % 10)==0) {
+			printf("%d %f %d %f %d\n",block_count_GL,max_acorl,argmax_acorl,max_acorl2,argmax_acorl2);
+		}
+
+
+
+
+
+
+        // sum the bin energies for 3 candidates, (acorl peak, acorl peak X2 and /2)
+  //       if(raw_freq < 4e3) {
+  //       	binfund = (float)FFTLEN/argmax_acorl_interp; // fractional bin
+		// 	maxharm = (int)floor(3e3/raw_freq);
+		// 	fft_energy_1x =0.0; fft_energy_2x = 0.0; fft_energy_halfx = 0.0;
+		// 	for(k=1;k <= maxharm;k++) {
+		// 		ptr = (int)((float)k*binfund + 0.5);
+		// 		fft_energy_1x += fftpow[ptr];
+		// 		ptr = (int)(2.0*(float)k*binfund + 0.5);
+		// 		fft_energy_2x += fftpow[ptr];
+		// 		ptr = (int)(0.5*(float)k*binfund + 0.5);
+		// 		fft_energy_halfx += fftpow[ptr];
+
+		// 	}
+		// }
+
+		// if((fft_energy_2x > fft_energy_1x) || (fft_energy_halfx > fft_energy_1x)) {
+		// 	gate = 0.0;
+		// 	//printf("energy wrong\n");
+		// }
 
 		// ************ This is the return to JS side!! ******************
 
-		wav_in[num_samples_wav+block_count_GL] = freqs_GL[block_count_GL]; // return pitch using unused portion of input array
-	 	
-	 	// ***********************************************************
+		freqout = fs/argmax_acorl_interp;
+		if(freqout > FHILIMIT) freqout = FHILIMIT;
+		if(freqout < FLOLIMIT) freqout = FLOLIMIT;
 
+		wav_in[outbuff_ptr] = freqout; // return pitch in same array, over-write the values that we already used 
+	 	outbuff_ptr++;
+	 	wav_in[outbuff_ptr] = (float)note_index_GL;
+	 	outbuff_ptr++;
+	 	wav_in[outbuff_ptr] = note_error_GL;
+
+
+
+	 	// the js side will call the C program every 4K samples, so we do 2 blocks of 2K and return them in
+	 	// wav_in[0] and wav_in[1]
+	 	// ***********************************************************
+		//printf("freq = %f\n",freqs_GL[block_count_GL]);
 
 	 	count = 0;
 	 	block_count_GL = block_count_GL + 1;
+	 	outbuff_ptr++;
 
 	} else {
 		count = count + 1;
@@ -216,7 +356,7 @@ for(i=0;i < num_samples_wav-FFTLEN;i++) {
 
 
 //for(k=0:k < 16;k++) wav_in[k] = 1;
-printf("done FFT loop, max block count =   %d\n",block_count_GL-1);
+//printf("done FFT loop, max block count =   %d\n",block_count_GL);
 
 return block_count_GL; 
 
@@ -232,11 +372,26 @@ return block_count_GL;
 /**************************************************/
 void hannCompute(void) {
 
-  	int k;
-  	for(k = 0;k < FFTLEN;k++) {
-  		win[k] = ( 0.5 * (1.0 - cos (2.0*PI*(float)k/(float)(FFTLEN-1))) );
+  	int k,kk;
+  	for(k = 0;k < FFTLEN/8;k++) {
+  		hann[k] = ( 0.5 * (1.0 - cos (2.0*PI*(float)k/(float)(FFTLEN/8-1))) );
   	}
+  	for(k=0;k < FFTLEN/16;k++) {
+  		win[k] = hann[k];
+  	}
+  	for(k=FFTLEN/16;k < FFTLEN-(FFTLEN/16);k++) {
+		win[k] = 1.0;
+	}
+	kk=0;
+	for(k=FFTLEN-(FFTLEN/16);k < FFTLEN;k++) {
+		win[k] = hann[FFTLEN/16+kk];
+		kk++;
+	}
+	// for(k=0;k < FFTLEN;k++) {
+	// 	printf("%f\n",win[k]);
+	// }
 }
+
 
 
 /**************************************************/
@@ -267,114 +422,6 @@ float compute_fftmagdb(void) { // operates on global FFT registers
 	
 
 
-/**************************************************/
-float find_freq(void) {
-	int k,kk,cond1,cond2,cond3,cond4,cond5,pass, halfbuff,num_keepers;
-	float Beta,Alpha,Gamma,frac_bin,delta_peaks_median,av_keepers,pwr,gate,tempf;
-	float hold_freq = 0.0;
-	static float freq=0.0,oldfreq=0.0;
-	numpeaks_GL=0;
-	for(k=3;k < MAXBIN;k++) {
-		cond1 = (fftmagdb[k] > fftmagdb[k+1]);
-		cond2 = (fftmagdb[k] > fftmagdb[k-1]);
-		cond3 = (fftmagdb[k] > (fftmagdb[k+2]+2.0));
-		cond4 = (fftmagdb[k] > (fftmagdb[k-2]+2.0));
-		cond5 = (fftmagdb[k] > (maxampl_db_GL-40.0));
-		pass = (cond1 & cond2 & cond3 & cond4 & cond5);
-		if(pass==1) { // interpolate
-			Beta = fftmagdb[k];
-        	Alpha = fftmagdb[k-1];
-        	Gamma = fftmagdb[k+1];
-        	frac_bin = 0.5*(Alpha-Gamma)/(Alpha-2.0*Beta + Gamma);
-        	peaks_interp[numpeaks_GL] = (float)k + frac_bin;
-        	//printf("%f\n",peaks_interp[numpeaks_GL]);
-			numpeaks_GL++;
-		}
-		
-
-	}
-	
-	// note, since we treat the 1st component as a delta with 0, we have the same number of deltas as peaks
-	if(numpeaks_GL > 0) {
-		hold_freq = freq;
-		delta_peaks[0] = peaks_interp[0]; // use absolute instead of delta for 1st peak
-		for(k=1;k < numpeaks_GL;k++) {
-			delta_peaks[k] = peaks_interp[k]-peaks_interp[k-1];
-
-		}
-	
-		// now sort the delta-peaks array
-		Array_sort(delta_peaks,numpeaks_GL);
-		tempf = ((float)numpeaks_GL) - 1e-12;
-		tempf = tempf/2.0;
-		halfbuff = (int)tempf;
-		delta_peaks_median = delta_peaks[halfbuff];
-
-		// now reject outliers
-		num_keepers = 0;
-		av_keepers = 0.0;
-		for(kk=0;kk <= numpeaks_GL-1;kk++) { 
-			if((delta_peaks[kk] > 0.97*delta_peaks_median) && (delta_peaks[kk] < 1.03*delta_peaks_median ) ) {
-				num_keepers++;
-				av_keepers = av_keepers +  delta_peaks[kk];
-			}
-
-		}
-		av_keepers = av_keepers/(float)num_keepers;
-		freq = scale_bins2freq_GL*av_keepers;
-		//freq = scale_bins2freq_GL*delta_peaks_median;
-
-		// over-ride freq with old freq if reliability too low
-		reliability_GL[block_count_GL] = (float)num_keepers/(float)numpeaks_GL;
-		if(block_count_GL > 3) {
-			if( (reliability_GL[block_count_GL-2] < 0.4) || (reliability_GL[block_count_GL-1] < 0.4) || (reliability_GL[block_count_GL] < 0.4)) {
-				freq = hold_freq;
-			}
-		}
-
-		} else { // no peaks
-			freq = hold_freq;
-		}
-
-		//if(block_count_GL==70) { 
-		//	printf("numpeaks,halfbuff, delta_median,delta_av = %d %d %f %f\n",numpeaks_GL,halfbuff,delta_peaks_median,av_keepers);
-
-		//}
-	//pwr = fftpower_GL[(int)av_keepers] + fftpower_GL[(int)(2.0*av_keepers)] + fftpower_GL[(int)(3.0*av_keepers)];
-
-
-
-	
-
-	// if(num_keepers == 0) {
-	// 	freq = oldfreq;
-	// } else {
-		
-	// 	freq = scale_bins2freq_GL*av_keepers;
-	// 	oldfreq = freq;
-	// }
-
-	
-
-
-	if(sqrt(ms_ampl_GL) < 0.002) {
-		gate = 0.0;
-	} else {
-		gate = 1.0;
-	}
-
-
-
-	return(freq); // absolute frequency of the median delta-freq
-	//return((float)av_keepers);
-	//return((float)numpeaks_GL);
-	//return((float)num_keepers);
-
-	//return((float)reliability_GL[k]);
-	//return(pwr);
-	//return(sqrt(ms_ampl_GL));
-}
-
 
 void init_fft_twiddles(void)
 {
@@ -389,7 +436,7 @@ for(k=0;k < FFTLEN2;k++) {
 
 }
 /**************************************************/
-void fft(int fn)
+void fft(int fn, int fr) // fr is 1 for forward and -1 for inverse
 //int fn, ff;
 /*** re and im arrays are global, so they can be huge!! **/
 
@@ -438,7 +485,7 @@ void fft(int fn)
 		{
 
 			fwr = twid_re[(fm-1)*tmax];
-			fwi = -twid_im[(fm-1)*tmax];
+			fwi = -((float)fr)*twid_im[(fm-1)*tmax];
 			//ftheta = PI * (float)(-(fm - 1)) / (float)mmax;
 			//fwr = cos(ftheta);
 			//fwi = sin(ftheta);
@@ -459,88 +506,6 @@ void fft(int fn)
 	}
 	
 }
-
-
-
-
-
-
-/**************************************************/
-void ifft(int fn)
-//int fn, ff;
-/*** re and im arrays are global, so they can be huge!! **/
-
-/* fft(re, im fn, ff) performs Fast Fourier Transform.        */
-/*  re[] and im[] contain the real and imaginary part of data  */
-/*   ( After transform they contain the transformed data)        */
-/*  fn is the number of point. ( must be power of 2 )            */
-/*  ff = -1 for forward transform.       			 */
-/*     =  1 for inverse transform.       			 */
-
-{
-	float tempr, tempi, fwr, fwi, ftheta;
-	int fj, fi, fm, mmax, istep;
-
-
-	/*  do Bit-Reversal */
-	fj = 1;
-	for ( fi =1; fi <=fn; fi++)
-	{
-		if(fi < fj)
-		{
-			tempr = re[fj-1];
-			tempi = im[fj-1];
-			re[fj-1] = re[fi-1];
-			im[fj-1] = im[fi-1];
-			re[fi-1] = tempr;
-			im[fi-1] = tempi;
-		}
-		fm = fn / 2.0 ;
-		while ( fj > fm )
-		{
-			fj = fj - fm;
-			fm = (fm + 1 ) / 2;
-		}
-		fj = fj + fm;
-	}
-
-	/* Radix two frequency decimation algorithm  */
-	mmax = 1;
-		while ( mmax < fn )
-	{
-		istep = 2 * mmax;
-		for ( fm = 1; fm <= mmax; fm++ )
-		{
-			ftheta = PI * (float)((fm - 1)) / (float)mmax;
-			fwr = cos(ftheta);
-			fwi = sin(ftheta);
-			for(fi = fm; fi <= fn; fi = fi + istep )
-			{
-				fj = fi + mmax;
-				tempr = fwr * re[fj-1] - fwi * im[fj-1];
-				tempi = fwr * im[fj-1] + fwi * re[fj-1];
-				re[fj-1] = re[fi-1] - tempr;
-				im[fj-1] = im[fi-1] - tempi;
-				re[fi-1] = re[fi-1] + tempr;
-				im[fi-1] = im[fi-1] + tempi;
-			}
-		}
-		mmax = istep;
-	}
-	// scaling for inverse transform only, could skip??
-	for ( fi = 0; fi < fn; fi++)
-	{
-		re[fi] = re[fi] / (float)fn;
-		im[fi] = im[fi] / (float)fn;
-	}
-	
-}
-
-
-
-
-
-
 
 
 
@@ -606,8 +571,6 @@ return((float)sum - 32768.0);
 
 
 
-
-
 /**************************************************/
 #ifdef CONLY
 
@@ -662,6 +625,34 @@ for(i=1;i <= 44;i++) {
 }
 #endif
 
+void init_note_limits(void) 
+	{
+	int k;
+	float lowest_note_freq = 440.0/8.0;// 3 octaves below A440
+	for(k=0;k < num_notes_GL;k++) {
+		note_nom_limit[k] = lowest_note_freq*pow(2.0,((float)k)/12.0);
+		note_high_limit[k] = note_nom_limit[k]*pow(2.0,(1.0/24.0)); // 1/2 semi-tone
+		note_low_limit[k] = note_nom_limit[k]*pow(2.0,(-1.0/24.0)); // 1/2 semi-tone
+
+
+	} 
+}
+
+void init_acorl_tilt(void)
+	{
+	int k;
+	for(k=0;k < FFTLEN2;k++) {
+		acorl_tilt[k] = 1.0;
+		//if(k <= MINBIN) acorl_tilt[k] = pow((float)MINBIN,-0.25); else acorl_tilt[k] = pow( ((float)k),-0.25);
+		// if(k <= 100) {
+		// 	acorl_tilt[k] = pow(100.0,-0.25);
+		// 	} else {
+		// 		acorl_tilt[k] = pow((float)k,-0.25);
+		// 	}
+
+		//printf("acorl tilt = %f\n",acorl_tilt[k]);
+	}
+	}
 
 
 

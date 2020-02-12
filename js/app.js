@@ -202,7 +202,7 @@ function createDownloadLink(blob) {
 
 function processBuffer(buff) {
 	/** 2D array buff[channel][index] **/
-	console.log(buff);
+	//console.log(buff);
 	var audiobuff = buff[0]; // 1 channel only
 	console.log(audiobuff.length);
 	var top_return = 1024; // the number of samples that will be wasted to make room for the return buffer at the top of the audio array

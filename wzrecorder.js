@@ -11,6 +11,53 @@ function WzRecorder(config) {
     var recordingLength = 0;
 	var startDate;
 	var audioCtx;
+    processAudioData = Module.cwrap('processAudioData', 'number', ['number', 'number','number'] );
+    var nDataBytes = (4096 * 4);
+    var dataPtr = Module._malloc(nDataBytes); // this is emcripten specific, _malloc alloactes inside the em heap
+    var dataHeap = new Uint8Array(Module.HEAPU8.buffer, dataPtr, nDataBytes);
+
+
+    var plotArrayLength = 60; // about 3 seconds of past history??
+    var plotArray = [];
+    var PLOTYLOW = 0;
+    var PLOTYHI = 1500;
+
+    for(var i = 0; i < plotArrayLength; i++) {
+        plotArray[i] = 0;
+    }
+
+    var layout = {
+        xaxis: {range: [1, 60]},
+        //yaxis: {range: [0, PLOTYHI], autorange: false},
+        yaxis: {range: [0, PLOTYHI]},
+
+        };
+
+    Plotly.react('myDiv', [{ // plot all 0's to start
+    y: plotArray,
+    mode: 'lines',
+    line: {color: '#80CAF6'},
+    layout
+    }]);
+
+// Plotly.restyle('myDiv', 
+//     layout
+// );
+
+    // var top_return = 2; // the number of samples that will be wasted to make room for the return buffer at the top of the audio array
+    // // pass float array, code copied from:
+    // // https://bl.ocks.org/jonathanlurie/e4aaa37e2d9c317ce44eae5f6011495d
+    // // Get data byte size, allocate memory on Emscripten heap, and get pointer
+    // // Import function from Emscripten generated file
+    // processAudioData = Module.cwrap('processAudioData', 'number', ['number', 'number','number'] );
+    // // function return, float * ptr to wav array, wav length, array-return-length
+    // var nDataBytes = (4096 * 4); // 4 bytes per element for float
+    // var dataPtr = Module._malloc(nDataBytes); // this is emcripten specific, _malloc alloactes inside the em heap
+    // var dataHeap = new Uint8Array(Module.HEAPU8.buffer, dataPtr, nDataBytes);
+
+    var audioprocess_counter_GL = 0;
+
+    console.log("here");
 	
 	this.toggleRecording = function()
 	{
@@ -88,7 +135,7 @@ function WzRecorder(config) {
         audioInput.disconnect();
         audioNode.disconnect();
 
-        console.log(recordedData.length);
+        //console.log(recordedData.length);
         // total recording length in samples is recordingLength, set in onAudioProcess 
         // note recordedData.length gives the number of 4K sample blocks, whereas
         // recordedData(n).length gives the length of the nth sample block (4K usually)
@@ -96,7 +143,9 @@ function WzRecorder(config) {
         var buff = mergeBuffers(recordedData,recordingLength); // convert to a single large array
         //console.log(buff.length);
         //console.log(buff);
-        processBuffer(buff);
+        
+
+        //processBuffer(buff);
 		
         exportWav({
             sampleRate: sampleRate,
@@ -138,14 +187,65 @@ function WzRecorder(config) {
         if (!recording) {
             return;
         }
+        var num_results = 6; // C code takes in 8K data and produces 6 results (3 from 1:4K and 3 from 4K:8K)
+        audioprocess_counter_GL++;
 
         recordedData.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-        recordingLength += bufferSize;
+        recordingLength += bufferSize; // 4K buffer size
+
+
+        //if (audioprocess_counter_GL == 10) {
+            var xxx = 0; // easy debug place
+            //var audiobuff2 = e.inputBuffer.getChannelData(0);
+            //var audiobuff2 = e.inputBuffer;
+            //console.log(audiobuff2);
+
+            var mydata = new Float32Array(e.inputBuffer.getChannelData(0));
+
+            var top_return = 2; // the number of samples that will be wasted to make room for the return buffer at the top of the audio array
+            // pass float array, code copied from:
+            // https://bl.ocks.org/jonathanlurie/e4aaa37e2d9c317ce44eae5f6011495d
+            // Get data byte size, allocate memory on Emscripten heap, and get pointer
+            // Import function from Emscripten generated file
+            // processAudioData = Module.cwrap('processAudioData', 'number', ['number', 'number','number'] );
+            // var nDataBytes = (4096 * 4);
+            // var dataPtr = Module._malloc(nDataBytes); // this is emcripten specific, _malloc alloactes inside the em heap
+            // var dataHeap = new Uint8Array(Module.HEAPU8.buffer, dataPtr, nDataBytes);
+            
+            dataHeap.set(new Uint8Array(mydata.buffer)); 
+
+            var numblocks = processAudioData(dataHeap.byteOffset, bufferSize,top_return); // call emscripten function
+            var result = new Float32Array(dataHeap.buffer, dataHeap.byteOffset, num_results); // copy bottom 6 of buffer and convert to float
+            Module._free(dataHeap.byteOffset);
+            //console.log(result);
+        //}
+
+        
+        // if (audioprocess_counter_GL == 20) {
+        //     console.log(numblocks);
+        // }
 
         self.recordingLength = recordingLength;
 		self.duration = new Date().getTime() - self.startDate.getTime();
 
 		config.onRecording && config.onRecording(self.duration);
+
+        // update the streaming plot
+        if( (result[0] > 0.0) && (result[3] > 0.0)) { // 0 result is a "flag" to stop the plot from scrolling
+            plotArray = plotArray.concat(result[0]);
+            plotArray.splice(0, 1);
+            plotArray = plotArray.concat(result[3]);
+            plotArray.splice(0, 1);
+            Plotly.update('myDiv', {y: [plotArray]});
+            Plotly.relayout('myDiv', {
+                'yaxis.range':[0,PLOTYHI],
+                'xaxis.autorange': false,
+                'yaxis.autorange': false
+                });
+
+
+        }
+
     }
 
 
@@ -159,69 +259,6 @@ function WzRecorder(config) {
             offset += recBuffers[i].length;
         }
         return result;
-    }
-
-
-    function processBuffer(audiobuff) {
-        /** 2D array buff[channel][index] **/
-        //console.log(buff);
-        //var audiobuff = buff[0]; // 1 channel only
-        //console.log(audiobuff.length);
-        var top_return = 1024; // the number of samples that will be wasted to make room for the return buffer at the top of the audio array
-
-        // pass float array, code copied from:
-        // https://bl.ocks.org/jonathanlurie/e4aaa37e2d9c317ce44eae5f6011495d
-        // Get data byte size, allocate memory on Emscripten heap, and get pointer
-
-        // Import function from Emscripten generated file
-        processAudioData = Module.cwrap('processAudioData', 'number', ['number', 'number','number'] );
-        // function return fftargmax, float * ptr to wav array, wav length, array-return-length
-
-
-        var nDataBytes = (audiobuff.length * audiobuff.BYTES_PER_ELEMENT); // 4 bytes per element for float
-        var dataPtr = Module._malloc(nDataBytes); // this is emcripten specific, _malloc alloactes inside the em heap
-
-        // Copy data to Emscripten heap (directly accessed from Module.HEAPU8)
-        var dataHeap = new Uint8Array(Module.HEAPU8.buffer, dataPtr, nDataBytes);
-        dataHeap.set(new Uint8Array(audiobuff.buffer)); 
-        // call function and get pitch
-        //console.log(buff.length);
-        //var func_in = new Uint8Array(dataHeap.buffer, dataHeap.byteOffset, audiobuff.length);
-        var numblocks = processAudioData(dataHeap.byteOffset, audiobuff.length,top_return); // call emscripten function
-        //var result = new Float32Array(dataHeap.buffer, dataHeap.byteOffset, audiobuff.length); // copy buffer and convert to float
-        var result = new Float32Array(dataHeap.buffer, dataHeap.byteOffset+4*(audiobuff.length-top_return), top_return); // copy top of buffer and convert to float
-        //var func_out = [...result.slice(result.length-top_return)]; // top of buffer is return values
-
-        console.log(" numblocks = "); //
-        console.log(numblocks);
-        console.log(" C-code results in top 1K of heap  = "); 
-        console.log(result);
-
-      // Free memory
-        Module._free(dataHeap.byteOffset);
-        var X = makeArr(1,numblocks,numblocks);
-
-    //*********** PLOT *************/
-        var trace1 = {
-        x: X,
-        y: result.slice(1,numblocks),
-      //type: 'scatter'
-        type: 'line'
-
-        };
-
-        // var trace2 = {
-        //   x: X,
-        //   y: [16, 5, 11, 9],
-        //   type: 'scatter'
-        // };
-        //var data = [trace1];
-
-        Plotly.newPlot('myDiv', [trace1]);
-
-        var xx = 10;
-
-
     }
 
 
