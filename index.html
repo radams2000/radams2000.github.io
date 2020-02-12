@@ -3,20 +3,23 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>AudioTest</title>
+    <title>Bobs Better Pitch Detector</title>
 </head>
 <body>
 	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
     <div class="container" style="margin:3rem">
+    	<p>
+			Bobs Better Pitch Detector
+		</p>
 		<p>
 			<button id=record>Toggle start-stop</button>
 		</p>
-		<p>
+		<!--  <p>
 			Duration: <span id="duration">0ms</span>
 		</p>
 		<p>
 			<audio id="player" controls></audio>	
-		</p>
+		</p> -->
 	</div>
   <div id='myDiv'><!-- Plotly chart will be drawn inside this DIV --></div>
 	
@@ -26,12 +29,12 @@
     <script>
 	
 	var recorder = new WzRecorder({
-		onRecordingStop: function(blob) {
-			document.getElementById('player').src = URL.createObjectURL(blob);
-		},
-		onRecording: function(milliseconds) {
-			document.getElementById('duration').innerText = milliseconds + 'ms';
-		}
+		// onRecordingStop: function(blob) {
+		// 	document.getElementById('player').src = URL.createObjectURL(blob);
+		// },
+		// onRecording: function(milliseconds) {
+		// 	document.getElementById('duration').innerText = milliseconds + 'ms';
+		// }
 	});
 
 	// wire up the microphone button to toggle recording
