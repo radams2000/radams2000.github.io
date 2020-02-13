@@ -148,7 +148,7 @@ fclose(outfile);
 extern "C" {
 #endif
 
-int processAudioData(float * wav_in, int num_samples,int num_return_samples) // returns a pointer to an array
+int processAudioData(float * wav_in, int num_samples,int num_return_samples,float fs) // returns a pointer to an array
 {
 
 int i,k,kk,count,outbuff_ptr=0;
@@ -157,10 +157,11 @@ float max_acorl = 0.0,max_acorl2=0.0;
 int argmax_acorl = 0,argmax_acorl2 =0;
 float Beta,Alpha,Gamma,frac_bin,argmax_acorl_interp,raw_freq,binfund;
 int num_samples_wav = num_samples-num_return_samples,maxharm,ptr,starti;
-float fs = 44.1e3; // temporary, will need a way to pass this in from the JS side
+//float fs = 44.1e3; // temporary, will need a way to pass this in from the JS side
 float fft_energy_1x,fft_energy_2x,fft_energy_halfx,gate,acorl_ratio,mean,freqout,tempr,pass;
-int check_bin1,check_bin2,fftbin;
-float ampl0,ampl1,ampl2;
+int check_bin1,check_bin2,fftbin,acorlbin;
+float ampl0,ampl1,ampl2,ratio_av,gate1,acorl0,acorl1,acorl_peak_pwr,acorl_nolag_pwr,kr;
+float crappiness = 1.0;
 
 
 if(init==1) {
@@ -227,6 +228,8 @@ for(i=0;i < num_samples;i++) {
 		fft(FFTLEN,-1);
 
 		// zero out the early values until the autocorl goes negative
+		acorl0 = re[0]; // save the 0th acorl so we can test for periodicity later
+		acorl1 = re[1];
 		pass = 0.0;
 		for(k=0;k < 300;k++) {
 			if(re[k] < 0.0) {
@@ -254,14 +257,33 @@ for(i=0;i < num_samples;i++) {
         	frac_bin = 0.5*(Alpha-Gamma)/(Alpha-2.0*Beta + Gamma);
         	argmax_acorl_interp = (float)argmax_acorl + frac_bin;
         }
+        //printf("%f\n",argmax_acorl_interp);
 
         //check in the freq domain to see if lower-freq peaks appear
-        fftbin = (int)(((float)FFTLEN)/argmax_acorl_interp + 0.5);
-        check_bin1 = (int)(0.5*((float)FFTLEN)/argmax_acorl_interp + 0.5);
-        check_bin2 = (int)(0.25*((float)FFTLEN)/argmax_acorl_interp + 0.5);
-        ampl0 = fftpow[fftbin];
-        ampl1 = fftpow[check_bin1];
-        ampl2 = fftpow[check_bin2];
+        // fftbin = (int)(((float)FFTLEN)/argmax_acorl_interp + 0.5); // fundamental should be here
+        // check_bin1 = (int)(0.5*((float)FFTLEN)/argmax_acorl_interp + 0.5); // 1/2 fundamental should be here
+        // check_bin2 = (int)((1.0/3.0)*((float)FFTLEN)/argmax_acorl_interp + 0.5); // 1/3 fundamental should be here
+        // ampl0 = fftpow[fftbin];
+        // ampl1 = fftpow[check_bin1];
+        // ampl2 = fftpow[check_bin2];
+
+        // a perfectly periodic signal will have the peak acorl = acorl[0]. If other signals are present
+        // the the peak acorl wil be < acorl[0], because it never aligns 100% with any shifted version of itself
+        // maybe I should modify this using the interpolation method to get the true peak instead of adding neighboring
+        // bins which could possibly be negative??
+        if(argmax_acorl > 0) {
+        	acorl_peak_pwr = re[argmax_acorl] + re[argmax_acorl-1] + re[argmax_acorl+1];
+        	acorl_nolag_pwr = acorl0 + 2.0*acorl1;
+    	}
+
+    	crappiness = acorl_nolag_pwr/acorl_peak_pwr;
+
+        //printf("acorl_argmax, sqrt(acorl(0)), sqrt(acorl_peak_power) = %d %f %f\n",argmax_acorl,sqrt(acorl_nolag_pwr),sqrt(acorl_peak_pwr));
+        // if( (fftbin > 4) && (fftbin < (FFTLEN2-4))) {
+        // 	ratio_av = 0.5*(ampl0/fftpow[fftbin+3] + ampl0/fftpow[fftbin-3]);
+        // 	printf("ratio_av = %f\n",ratio_av);
+    
+        // }
  
    		//printf("fft indexes = %d %d %d, ampl = %f %f %f\n",fftbin,check_bin1,check_bin2,ampl0,ampl1,ampl2);
         // printf("possible octave error at block %d\n",block_count_GL);
@@ -325,10 +347,16 @@ for(i=0;i < num_samples;i++) {
 		// }
 
 		// ************ This is the return to JS side!! ******************
-
-		freqout = fs/argmax_acorl_interp;
+        // if(ratio_av > 50.0) {
+        // 	gate1 = 1.0;
+        // } else {
+        // 	gate1 = 0.0;
+        // }
+        gate1 = 1.0;
+        if(crappiness > 1.2) gate1 = 0.0;
+		freqout = gate1*fs/argmax_acorl_interp;
 		if(freqout > FHILIMIT) freqout = FHILIMIT;
-		if(freqout < FLOLIMIT) freqout = FLOLIMIT;
+		//if(freqout < FLOLIMIT) freqout = FLOLIMIT;
 
 		wav_in[outbuff_ptr] = freqout; // return pitch in same array, over-write the values that we already used 
 	 	outbuff_ptr++;

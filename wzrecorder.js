@@ -11,7 +11,7 @@ function WzRecorder(config) {
     var recordingLength = 0;
 	var startDate;
 	var audioCtx;
-    processAudioData = Module.cwrap('processAudioData', 'number', ['number', 'number','number'] );
+    processAudioData = Module.cwrap('processAudioData', 'number', ['number', 'number','number','number'] );
     var nDataBytes = (4096 * 4);
     var dataPtr = Module._malloc(nDataBytes); // this is emcripten specific, _malloc alloactes inside the em heap
     var dataHeap = new Uint8Array(Module.HEAPU8.buffer, dataPtr, nDataBytes);
@@ -28,7 +28,6 @@ function WzRecorder(config) {
 
     var layout = {
         xaxis: {range: [1, 60]},
-        //yaxis: {range: [0, PLOTYHI], autorange: false},
         yaxis: {range: [0, PLOTYHI]},
 
         };
@@ -57,7 +56,7 @@ function WzRecorder(config) {
 
     var audioprocess_counter_GL = 0;
 
-    console.log("here");
+    //console.log("here");
 	
 	this.toggleRecording = function()
 	{
@@ -66,7 +65,10 @@ function WzRecorder(config) {
 	
 
     this.start = function() {
-
+        document.getElementById('record').innerText = "Running, click to stop";
+        var btn1 = document.getElementById('record');
+        btn1.style.color = "red";
+        //document.body.style.background = 'red'; 
 		// reset any previous data
 		recordedData = [];
 		recordingLength = 0;
@@ -91,6 +93,9 @@ function WzRecorder(config) {
 
     this.stop = function() {
         // pass a function to stopRecording; the function is defined inside the call to stopRecording
+        document.getElementById('record').innerText = "Paused, click to start";
+        var btn2 = document.getElementById('record');
+        btn2.style.color = "black";
         stopRecording(function(blob) {
 			self.blob = blob;
 			config.onRecordingStop && config.onRecordingStop(blob);
@@ -175,6 +180,7 @@ function WzRecorder(config) {
 		self.startDate = new Date();
 		
 		config.onRecordingStart && config.onRecordingStart();
+        //audioContxtOptions.sampleRate = 44100;
 		sampleRate = audioCtx.sampleRate;
     }
 
@@ -190,8 +196,9 @@ function WzRecorder(config) {
         var num_results = 6; // C code takes in 8K data and produces 6 results (3 from 1:4K and 3 from 4K:8K)
         audioprocess_counter_GL++;
 
-        recordedData.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-        recordingLength += bufferSize; // 4K buffer size
+        // don't accumulate a huge buffer, we just need a block at a time
+        //recordedData.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        //recordingLength += bufferSize; // 4K buffer size
 
 
         //if (audioprocess_counter_GL == 10) {
@@ -214,7 +221,7 @@ function WzRecorder(config) {
             
             dataHeap.set(new Uint8Array(mydata.buffer)); 
 
-            var numblocks = processAudioData(dataHeap.byteOffset, bufferSize,top_return); // call emscripten function
+            var numblocks = processAudioData(dataHeap.byteOffset, bufferSize,top_return,sampleRate); // call emscripten function
             var result = new Float32Array(dataHeap.buffer, dataHeap.byteOffset, num_results); // copy bottom 6 of buffer and convert to float
             Module._free(dataHeap.byteOffset);
             //console.log(result);
