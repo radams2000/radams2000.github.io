@@ -193,7 +193,7 @@ function WzRecorder(config) {
         if (!recording) {
             return;
         }
-        var num_results = 6; // C code takes in 8K data and produces 6 results (3 from 1:4K and 3 from 4K:8K)
+        var num_results = 2; // C code takes in 4K data and produces 1 results (we leave some extra in case)
         audioprocess_counter_GL++;
 
         // don't accumulate a huge buffer, we just need a block at a time
@@ -209,20 +209,22 @@ function WzRecorder(config) {
 
             var mydata = new Float32Array(e.inputBuffer.getChannelData(0));
 
-            var top_return = 2; // the number of samples that will be wasted to make room for the return buffer at the top of the audio array
+            //var top_return = 2; // the number of samples that will be wasted to make room for the return buffer at the bottom of the audio array
             // pass float array, code copied from:
             // https://bl.ocks.org/jonathanlurie/e4aaa37e2d9c317ce44eae5f6011495d
             // Get data byte size, allocate memory on Emscripten heap, and get pointer
             // Import function from Emscripten generated file
             // processAudioData = Module.cwrap('processAudioData', 'number', ['number', 'number','number'] );
-            // var nDataBytes = (4096 * 4);
+            // var nDataBytes = (4096 * 4), because there are 4 bytes per single-P float;
             // var dataPtr = Module._malloc(nDataBytes); // this is emcripten specific, _malloc alloactes inside the em heap
             // var dataHeap = new Uint8Array(Module.HEAPU8.buffer, dataPtr, nDataBytes);
             
             dataHeap.set(new Uint8Array(mydata.buffer)); 
-
-            var numblocks = processAudioData(dataHeap.byteOffset, bufferSize,top_return,sampleRate); // call emscripten function
-            var result = new Float32Array(dataHeap.buffer, dataHeap.byteOffset, num_results); // copy bottom 6 of buffer and convert to float
+            // call emscripten function
+            var numblocks = processAudioData(dataHeap.byteOffset, bufferSize,sampleRate); 
+            // old var numblocks = processAudioData(dataHeap.byteOffset, bufferSize,top_return,sampleRate); 
+            // copy bottom 2 floats from buffer to get result (only 0 used for now)
+            var result = new Float32Array(dataHeap.buffer, dataHeap.byteOffset, num_results); 
             Module._free(dataHeap.byteOffset);
             //console.log(result);
         //}
@@ -238,11 +240,13 @@ function WzRecorder(config) {
 		config.onRecording && config.onRecording(self.duration);
 
         // update the streaming plot
-        if( (result[0] > 0.0) && (result[3] > 0.0)) { // 0 result is a "flag" to stop the plot from scrolling
+        //if( (result[0] > 0.0) && (result[3] > 0.0)) { // 0 result is a "flag" to stop the plot from scrolling
+        if(result[0] > 0.0)  { // A 0 result is a "flag" to stop the plot from scrolling
+
             plotArray = plotArray.concat(result[0]);
             plotArray.splice(0, 1);
-            plotArray = plotArray.concat(result[3]);
-            plotArray.splice(0, 1);
+           // plotArray = plotArray.concat(result[3]);
+            // plotArray.splice(0, 1);
             Plotly.update('myDiv', {y: [plotArray]});
             Plotly.relayout('myDiv', {
                 'yaxis.range':[0,PLOTYHI],

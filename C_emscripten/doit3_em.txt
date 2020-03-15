@@ -1,0 +1,1 @@
+~/emsdk/upstream/emscripten/emcc ./pitch3.cpp -o pitch3.html -s EXPORTED_FUNCTIONS='["_processAudioData"]' -s EXTRA_EXPORTED_RUNTIME_METHODS='["ccall", "cwrap"]'

@@ -161,13 +161,14 @@ int num_samples_wav = num_samples-num_return_samples,maxharm,ptr,starti;
 float fft_energy_1x,fft_energy_2x,fft_energy_halfx,gate,acorl_ratio,mean,freqout,tempr,pass;
 int check_bin1,check_bin2,fftbin,acorlbin;
 float ampl0,ampl1,ampl2,ratio_av,gate1,acorl0,acorl1,acorl_peak_pwr,acorl_nolag_pwr,kr;
-float crappiness = 1.0;
+float crappiness = 1.0,re_wtilt;
 
 
 if(init==1) {
 	init_fft_twiddles();
 	init_note_limits();
 	init_acorl_tilt();
+	hannCompute();
 	init = 0;
 }
 
@@ -186,7 +187,7 @@ outbuff_ptr = 0;
 //block_count_GL = 0;
 scale_bins2freq_GL = fs_wav/(float)FFTLEN;
 //printf("num_samples, num_return_samples = %d %d\n",num_samples,num_return_samples);
-hannCompute();
+
 
 // for(i=num_samples_wav;i < num_samples;i++) { // zero out the return buffer
 // 	wav_in[i] = 0.0;
@@ -231,21 +232,25 @@ for(i=0;i < num_samples;i++) {
 		acorl0 = re[0]; // save the 0th acorl so we can test for periodicity later
 		acorl1 = re[1];
 		pass = 0.0;
-		for(k=0;k < 300;k++) {
+		for(k=0;k < FFTLEN2;k++) {
 			if(re[k] < 0.0) {
 				pass=1.0;
 			}
 			re[k] = pass*re[k];
 		}
 	
+		// now correlt for the window tilt
+		for(k=0;k < FFTLEN2;k++) {
+			re[k] = re[k]*acorl_tilt[k];
+		}
 		// now find the peak acorl
 
 
 		max_acorl = 0.0;
 		argmax_acorl = 1;
-		for(k=0;k < FFTLEN2-1;k++) { 
-			if(re[k]*acorl_tilt[k] > max_acorl) {
-				max_acorl = re[k]*acorl_tilt[k];
+		for(k=0;k < FFTLEN2;k++) { 
+			if(re[k] > max_acorl) {
+				max_acorl = re[k];
 				argmax_acorl = k;
 			}
 		}
@@ -401,20 +406,27 @@ return block_count_GL;
 void hannCompute(void) {
 
   	int k,kk;
-  	for(k = 0;k < FFTLEN/8;k++) {
-  		hann[k] = ( 0.5 * (1.0 - cos (2.0*PI*(float)k/(float)(FFTLEN/8-1))) );
+
+
+  	for(k = 0;k < FFTLEN;k++) {
+  		win[k] = ( 0.5 * (1.0 - cos (2.0*PI*(float)k/(float)(FFTLEN-1))) );
   	}
-  	for(k=0;k < FFTLEN/16;k++) {
-  		win[k] = hann[k];
-  	}
-  	for(k=FFTLEN/16;k < FFTLEN-(FFTLEN/16);k++) {
-		win[k] = 1.0;
-	}
-	kk=0;
-	for(k=FFTLEN-(FFTLEN/16);k < FFTLEN;k++) {
-		win[k] = hann[FFTLEN/16+kk];
-		kk++;
-	}
+
+
+ //  	for(k = 0;k < FFTLEN/8;k++) {
+ //  		hann[k] = ( 0.5 * (1.0 - cos (2.0*PI*(float)k/(float)(FFTLEN/8-1))) );
+ //  	}
+ //  	for(k=0;k < FFTLEN/16;k++) {
+ //  		win[k] = hann[k];
+ //  	}
+ //  	for(k=FFTLEN/16;k < FFTLEN-(FFTLEN/16);k++) {
+	// 	win[k] = 1.0;
+	// }
+	// kk=0;
+	// for(k=FFTLEN-(FFTLEN/16);k < FFTLEN;k++) {
+	// 	win[k] = hann[FFTLEN/16+kk];
+	// 	kk++;
+	// }
 	// for(k=0;k < FFTLEN;k++) {
 	// 	printf("%f\n",win[k]);
 	// }
@@ -669,8 +681,21 @@ void init_note_limits(void)
 void init_acorl_tilt(void)
 	{
 	int k;
-	for(k=0;k < FFTLEN2;k++) {
-		acorl_tilt[k] = 1.0;
+	double x;
+	double p1,p2,p3,p4,p5,p6;
+	// from polyfit of conv(hann(2048),hann(2048))
+	p1 = 1.35215711132677568389e-14;
+	p2 = -2.26731347185454937702e-11;
+	p3 = 1.63395621017506620316e-08;
+	p4 = -3.26118346124450944550e-06;
+	p5 = 5.45531638598839314219e-04;
+	p6 = 9.85439826782543715211e-01;
+
+	for(k=0;k < 441;k++) { // lag 441 corresponds to a freq of 100Hz, don't go lower or too sensitive
+		x = (double)(k + 1);
+		acorl_tilt[k] = (float)(p6 + x*p5 + pow(x,2)*p4 + pow(x,3)*p3 + pow(x,4)*p2 + pow(x,5)*p1);
+		// max value of 6.0 at k==1024
+		//printf("acorltilt %d %f\n",k+1,acorl_tilt[k]);
 		//if(k <= MINBIN) acorl_tilt[k] = pow((float)MINBIN,-0.25); else acorl_tilt[k] = pow( ((float)k),-0.25);
 		// if(k <= 100) {
 		// 	acorl_tilt[k] = pow(100.0,-0.25);
@@ -680,6 +705,10 @@ void init_acorl_tilt(void)
 
 		//printf("acorl tilt = %f\n",acorl_tilt[k]);
 	}
+	for(k=442;k < FFTLEN2;k++) {
+		acorl_tilt[k] =  0.0;
+	}
+
 	}
 
 
