@@ -19,29 +19,42 @@ function WzRecorder(config) {
 
     var plotArrayLength = 60; // about 3 seconds of past history??
     var plotArray = [];
+    var plotX = [];
+
     var PLOTYLOW = 0;
     var PLOTYHI = 1500;
 
     for(var i = 0; i < plotArrayLength; i++) {
-        plotArray[i] = 0;
+        plotArray[i] = 50; // low limit for the log plot
+        plotX[i] = i;
     }
+    plotArray[0] = 1500; // hi limit for log plot
+    plotArray[1] = 1500;
+    var logLo = Math.log10(50);
+    var logHi = Math.log10(2000);
 
     var layout = {
         xaxis: {range: [1, 60]},
-        yaxis: {range: [0, PLOTYHI]},
+        yaxis: {type: 'log', range: [logLo, logHi]}
 
         };
 
-    Plotly.react('myDiv', [{ // plot all 0's to start
+    
+
+        //yaxis: {range: [0, PLOTYHI]},
+
+    var data = { // plot all 0's to start; react is the same as newplot but faster
+    x: plotX,
     y: plotArray,
     mode: 'lines',
-    line: {color: '#80CAF6'},
-    layout
-    }]);
+    line: {color: '#80CAF6'}
+    };
 
-// Plotly.restyle('myDiv', 
-//     layout
-// );
+    Plotly.newPlot('myDiv', [data],layout);
+
+ // Plotly.restyle('myDiv', 
+ //     layout
+ // );
 
     // var top_return = 2; // the number of samples that will be wasted to make room for the return buffer at the top of the audio array
     // // pass float array, code copied from:
@@ -245,14 +258,16 @@ function WzRecorder(config) {
 
             plotArray = plotArray.concat(result[0]);
             plotArray.splice(0, 1);
+
            // plotArray = plotArray.concat(result[3]);
             // plotArray.splice(0, 1);
-            Plotly.update('myDiv', {y: [plotArray]});
-            Plotly.relayout('myDiv', {
-                'yaxis.range':[0,PLOTYHI],
-                'xaxis.autorange': false,
-                'yaxis.autorange': false
-                });
+            Plotly.update('myDiv', {y: [plotArray]},layout);
+
+            // Plotly.relayout('myDiv', {
+            //     //'yaxis.range':[0,PLOTYHI],
+            //     'xaxis.autorange': false,
+            //     'yaxis.autorange': false
+            //     });
 
 
         }
