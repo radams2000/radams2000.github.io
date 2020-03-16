@@ -153,8 +153,8 @@ float pwr,rms,gain;
 float firstPeakInterp = 0.0, firstPeakInterp_div2 = 0.0;
 float ratioMF=0.0,ratioMF_zm1=0.0,divby=1.0,fundInterp;
 float snrGate = 1.0,noisePow = 0.0,sigPow = 0.0;
-static float freq=0.0,freqZm1=0.0;
-static float freqRawZm1 =0.0,freqRaw=0.0;
+static float freq=0.0,freqZm1=0.0,freqGate=0.0;
+static float freqRawZm1 =0.0,freqRaw=0.0,freqRatio=0.0;
 
 
 
@@ -262,7 +262,16 @@ for(k = 0;k < MAXBIN;k++) { // only look up to 5KHz
     }
 
     fundInterp = firstPeakInterp/divby;
-    freq = fbin*fundInterp;
+
+    freqRawZm1 = freqRaw;
+    freqRaw = fbin*fundInterp;
+    freqRatio = freqRawZm1/freqRaw;
+    if(freqRatio > 1.7 || freqRatio < 0.6) {
+    	freq = freqZm1; // hold before making a large jump
+    } else {
+    	freqZm1 = freq;
+    	freq = ffreqRaw;
+	};
 
 // try to estimate snr by looking in-between the low harmonic bins
     // Matlab
@@ -289,141 +298,16 @@ for(k = 0;k < MAXBIN;k++) { // only look up to 5KHz
     if(snr >= 20) {
         snrGate = 1.0;
     }
-    freq = freq*snrGate;
+    freqGate = freq*snrGate; // this is what gets returned
 
 
 
-
-
-
-
-
- //    // if(k > 0) {
- //    // 	deltaPeakList[k-1] = peakListInterp[k]-peakListInterp[k-1];
- //    // }
-
-	// //}
-	// // find the interpolated index of the max peak. This will be the starting point of guessing the frequency
-	// spectMaxiInterp = peakListInterp[peakListMaxIndex];
-	// freqMaxBin = fbin*spectMaxiInterp;
-
-	// /*** MATLAB
-	// numMatch = zeros(6,1);
- //    for kk = 1:6 % test for guess that the answer is spectMaxiInterp/kk
- //        if freqMaxBin > 70*kk
- //            gate = (abs(deltaPeakList - spectMaxiInterp/kk) < 0.5); % within 1/2 bin
- //            numMatch(kk) = sum(gate); % number of deltas that are close to the assumed fundamental
- //        end
- //    end
- //    ***/
-
- //    for(k=0;k < 6;k++) {
- //    	numMatch[k] = 0;
-	// 	if(freqMaxBin > (float)(70*(k+1))) {
-	// 		for(kk=0;kk < numPeaks-1;kk++) { // there are numPeaks-1 deltas
-	// 			if(fabs(deltaPeakList[kk] - spectMaxiInterp/(float)(k+1)) < 0.5) {
-	// 				numMatch[k] = numMatch[k]+1;
-	// 			}
-
-	// 		} 
-
-	// 	}
-
- //    }
-
- //    /*** Matlab
- //    % deal with ties in numMatch
- //    for kk = 6:-1:2
- //        xx = find(numMatch(1:kk-1)==numMatch(kk));
- //        if ~isnan(xx)
- //            numMatch(xx) = 0;
- //        end
- //    end
- //    ***/
-
- //    // deal with ties in numMatch
- //    for(k=5;k > 0;k=k-1) {
- //    	for(kk=0;kk < k;kk++) {
- //    		if(numMatch[kk] == numMatch[k]) {
- //    			numMatch[kk]=0;
- //    		}
- //    	}
- // 	}
-
- // 	/*** Matlab
- // 	[yy,divby] = max(numMatch);
- //    if yy==0 % single tone??
- //        divby=1;
- //    end
- //    ***/
- //    yy = 0;
- //    divBy = 1;
- //    for(k=0;k < 6;k++) {
- //    	if(numMatch[k] > yy) { // find max if numMatch, this should be what we divide by
- //    		yy = numMatch[k];
- //    		divBy = k+1;
- //    	}
- //    }
- //    if(yy==0) divBy = 1; // single tone, no deltas
-
- //    /*** Matlab
-
- //    freqRaw(k) = fbin*spectMaxiInterp/divby;
- //    changeRatio = freqRaw(k)/(freqRaw(k-1) + 1e-6);
- //    if ((changeRatio > 1.7) || (changeRatio < 0.6))  % allows re-trigger
- //    %if ((changeRatio > 1.3) || (changeRatio < 0.76)) && (waitCount==0) % no re-trigger
- //        waitCount = 1;
- //    end
- //    if waitCount > 0
- //        freq(k) = freq(k-1); % hold
- //    else
- //        freq(k) = freqRaw(k); % update
- //    end
-
- //    ***/
-	// // skip for now
- //  	freqRawZm1 = freqRaw;
- //    freqRaw = fbin*spectMaxiInterp/(float)divBy;
- //    changeRatio = freqRaw/(freqRawZm1 + 1e-6);
- //    if ((changeRatio > 1.7) | (changeRatio < 0.6)) waitCount=0; //% allows re-trigger
- //    if(waitCount > 0) {
- //        freq = freqZm1; 
- //        }//% hold
- //    else {
- //    	freqZm1 = freq;
- //        freq = freqRaw; //% update
- //    }
-
- //    if(waitCount > 0) {
- //    	waitCount=waitCount-1;
-	// }
-
-	// /**** Matlab
-	// snr(k) = max(amplList1)/min(amplList1);
- //    if(snr(k) < 300)
- //        freq(k) = 0.0; % pause display
- //    end
-
- //    ***/
- //    minpeak = 1e12;
- //    maxpeak = 0.0;
- //    for(k=0;k < numList1;k++) {
- //    	if(amplList1[k] < minpeak) minpeak = amplList1[k];
- //    	if(amplList1[k] > maxpeak) maxpeak = amplList1[k];
-
- //    } 
-	// snr = sqrt(maxpeak/minpeak);
-
-	// if(snr < 300.0) {
-	// 	freq = 0.0; // signal to freeze display
-	// }
-		
 
 
 
 // ************ This is the return to JS side!! ******************
 
-wav_in[0] = freq; // return pitch using unused portion of input array
+wav_in[0] = freqGate; // return pitch using unused portion of input array
 wav_in[1] = 1.0; // just to test to comms
 
 //printf("block, freq = %d %f\n",block_GL,freq);

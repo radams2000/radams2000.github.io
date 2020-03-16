@@ -28,10 +28,10 @@ function WzRecorder(config) {
         plotArray[i] = 50; // low limit for the log plot
         plotX[i] = i;
     }
-    plotArray[0] = 1500; // hi limit for log plot
-    plotArray[1] = 1500;
+    // plotArray[0] = 1500; // hi limit for log plot
+    // plotArray[1] = 1500;
     var logLo = Math.log10(50);
-    var logHi = Math.log10(2000);
+    var logHi = Math.log10(3000);
 
     var layout = {
         xaxis: {range: [1, 60]},
