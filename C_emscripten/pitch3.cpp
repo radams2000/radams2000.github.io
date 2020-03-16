@@ -262,24 +262,8 @@ for(k = 0;k < MAXBIN;k++) { // only look up to 5KHz
     if(ratioMF < 0.25 & ratioMF_zm1 < 0.25) {
         divby = 1.0;
     }
-
     fundInterp = firstPeakInterp/divby;
 
-    freqRawZm1 = freqRaw;
-    freqRaw = fbin*fundInterp;
-    freqRatio = freqRawZm1/freqRaw;
-    if(freqRatio > 1.7 || freqRatio < 0.6) {
-    	waitCount = 3;
-    } elseif(waitCount > 1) {
-    	waitCount = waitCount-1;
-    }
-
-    if(waitCount > 0) {
-    	freq = freqZm1; // hold before making a large jump
-    } else {
-    	freqZm1 = freq;
-    	freq = ffreqRaw;
-	};
 
 // try to estimate snr by looking in-between the low harmonic bins
     // Matlab
@@ -297,15 +281,37 @@ for(k = 0;k < MAXBIN;k++) { // only look up to 5KHz
 
     }
     snr = sqrt(sigPow/noisePow);
-
-    
-    // create snr gate with hysterisis
+  // create snr gate with hysterisis
     if(snr < 6.0) {
         snrGate = 0.0;
     }
     if(snr >= 20) {
         snrGate = 1.0;
     }
+
+    if(snrGate == 1.0) {
+    freqRawZm1 = freqRaw;
+    freqRaw = fbin*fundInterp;
+    freqRatio = freqRawZm1/freqRaw;
+    if(freqRatio > 1.7 || freqRatio < 0.6) {
+    	waitCount = 3;
+    } 
+
+    if(waitCount >= 1) waitCount = waitCount-1;
+ 
+
+    if(waitCount > 0) {
+    	freq = freqZm1; // hold before making a large jump
+    } else {
+    	freqZm1 = freq;
+    	freq = freqRaw;
+	}
+	}
+
+
+
+    
+  
     freqGate = freq*snrGate; // this is what gets returned
 
 
