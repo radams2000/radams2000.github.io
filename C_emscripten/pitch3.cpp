@@ -151,7 +151,7 @@ float Beta,Alpha,Gamma,frac_bin,amplMax=0.0,freqMaxBin,low_limit;
 float spectMaxiInterp,minpeak,maxpeak,snr,changeRatio;
 float pwr,rms,gain;
 float firstPeakInterp = 0.0, firstPeakInterp_div2 = 0.0;
-float ratioMF,divby=1.0,fundInterp;
+float ratioMF=0.0,ratioMF_zm1=0.0,divby=1.0,fundInterp;
 float snrGate = 1.0,noisePow = 0.0,sigPow = 0.0;
 static float freq=0.0,freqZm1=0.0;
 static float freqRawZm1 =0.0,freqRaw=0.0;
@@ -249,13 +249,15 @@ for(k = 0;k < MAXBIN;k++) { // only look up to 5KHz
     bin5 = (int)floor(5.0*firstPeakInterp_div2 + 0.5); // bin corresponding to 5th harm of 1/2 firstPeakInterp
     bin4 = (int)floor(4.0*firstPeakInterp_div2 + 0.5); // bin corresponding to 4th harm of 1/2 firstPeakInterp
     bin6 = (int)floor(6.0*firstPeakInterp_div2 + 0.5); // bin corresponding to 6th harm of 1/2 firstPeakInterp
+    ratioMF_zm1 = ratioMF;
     ratioMF = (fftpower_GL[bin3] + fftpower_GL[bin5])/(fftpower_GL[bin4] + fftpower_GL[bin6]);
 
- // hysterisis in divby decision
-    if(ratioMF > 8.0) {
+ // hysterisis and persistance in divby decision
+
+    if(ratioMF > 3.0 & ratioMF_zm1 > 3.0) {
         divby = 2.0;
     }
-    if(ratioMF < 0.25) {
+    if(ratioMF < 0.25 & ratioMF_zm1 < 0.25) {
         divby = 1.0;
     }
 
