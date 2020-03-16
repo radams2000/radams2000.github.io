@@ -70,7 +70,6 @@ int peakList[MAXBIN] = {0};
 float amplList[MAXBIN] = {0};
 int peakList1[MAXBIN] = {0};
 float amplList1[MAXBIN] = {0};
-int waitCount = 0;
 
 
 #ifdef CONLY
@@ -155,12 +154,15 @@ float ratioMF=0.0,ratioMF_zm1=0.0,divby=1.0,fundInterp;
 float snrGate = 1.0,noisePow = 0.0,sigPow = 0.0;
 static float freq=0.0,freqZm1=0.0,freqGate=0.0;
 static float freqRawZm1 =0.0,freqRaw=0.0,freqRatio=0.0;
+static int waitCount;
+
 
 
 
 if(init==1) {
 	init_fft_twiddles();
 	init = 0;
+	waitCount = 0;
 	printf("pitch3.cpp Hello\n");
 }
 
@@ -267,6 +269,12 @@ for(k = 0;k < MAXBIN;k++) { // only look up to 5KHz
     freqRaw = fbin*fundInterp;
     freqRatio = freqRawZm1/freqRaw;
     if(freqRatio > 1.7 || freqRatio < 0.6) {
+    	waitCount = 3;
+    } elseif(waitCount > 1) {
+    	waitCount = waitCount-1;
+    }
+
+    if(waitCount > 0) {
     	freq = freqZm1; // hold before making a large jump
     } else {
     	freqZm1 = freq;
