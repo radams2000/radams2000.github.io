@@ -234,25 +234,25 @@ for(k = 0;k < MAXBIN;k++) { // only look up to 5KHz
 
 
 
-	// now interpolate everything in the peaklist
+	// now interpolate the first peak
 
 	//for(k=0;k < numPeaks;k++) {
 	Beta = sqrt(fftpower_GL[peakList[firstPeaki]]);
     Alpha = sqrt(fftpower_GL[peakList[firstPeaki]-1]);
     Gamma = sqrt(fftpower_GL[peakList[firstPeaki]+1]);
     frac_bin = 0.5*(Alpha-Gamma)/(Alpha-2.0*Beta + Gamma);
-    firstPeakInterp = (float)peakList[firstPeaki] + frac_bin;
+    firstPeakInterp = peakList[firstPeaki] + frac_bin;
     firstPeakInterp_div2 = firstPeakInterp/2.0; 
 
 
- 	bin3 = (int)floor(3.0* firstPeakInterp_div2 + 0.5); // bin corresponding to 3rd harm of 1/2 firstPeakInterp
-    bin5 = (int)floor(5.0* firstPeakInterp_div2 + 0.5); // bin corresponding to 5th harm of 1/2 firstPeakInterp
-    bin4 = (int)floor(4.0* firstPeakInterp_div2 + 0.5); // bin corresponding to 4th harm of 1/2 firstPeakInterp
-    bin6 = (int)floor(6.0* firstPeakInterp_div2 + 0.5); // bin corresponding to 6th harm of 1/2 firstPeakInterp
+ 	bin3 = (int)floor(3.0*firstPeakInterp_div2 + 0.5); // bin corresponding to 3rd harm of 1/2 firstPeakInterp
+    bin5 = (int)floor(5.0*firstPeakInterp_div2 + 0.5); // bin corresponding to 5th harm of 1/2 firstPeakInterp
+    bin4 = (int)floor(4.0*firstPeakInterp_div2 + 0.5); // bin corresponding to 4th harm of 1/2 firstPeakInterp
+    bin6 = (int)floor(6.0*firstPeakInterp_div2 + 0.5); // bin corresponding to 6th harm of 1/2 firstPeakInterp
     ratioMF = (fftpower_GL[bin3] + fftpower_GL[bin5])/(fftpower_GL[bin4] + fftpower_GL[bin6]);
 
  // hysterisis in divby decision
-    if(ratioMF > 1.0) {
+    if(ratioMF > 8.0) {
         divby = 2.0;
     }
     if(ratioMF < 0.25) {
